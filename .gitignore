@@ -1,0 +1,59 @@
+# ============================================================
+# rasrav-gauge-vision-2026 — kod reposu (PRIVATE)
+# Raporlar ayrı repoda: akilli-fabrika-staj-2026
+# ============================================================
+
+# --- FABRİKA GÖRÜNTÜSÜ: hiçbir koşulda commit edilmez ---
+data/real/
+data/factory/
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# --- Veri (üretilebilir veya indirilebilir → git'te yeri yok) ---
+data/**
+!data/**/
+!data/**/.gitkeep
+!data/README.md
+!data/**/README.md
+
+# --- Model ağırlıkları ---
+models/**
+!models/.gitkeep
+*.pt
+*.pth
+*.onnx
+*.weights
+*.h5
+
+# --- Çıktılar (koşu sonuçları, figürler, metrikler) ---
+outputs/**
+!outputs/**/
+!outputs/**/.gitkeep
+runs/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- Editör / OS ---
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# --- Geçici ---
+*.log
+*.tmp
+tmp/
+scratch/

@@ -1,0 +1,17 @@
+# Temel — İP2/İP3 için bunlar yeterli
+numpy>=1.26
+PyYAML>=6.0
+opencv-python>=4.10        # sentetik gösterge çizimi + görüntü işleme
+pillow>=10.0
+matplotlib>=3.8            # hata grafikleri, rapor figürleri
+pytest>=8.0
+
+# İP5+ (tespit) — Python 3.14'te tekerlek sorunu çıkarsa venv'i 3.12 ile kur
+# ultralytics>=8.3
+
+# İP10 (MQTT yayını)
+# paho-mqtt>=2.1
+
+# İP11 (dijital / 7-segment OCR)
+# paddleocr>=2.9
+# pytesseract>=0.3
