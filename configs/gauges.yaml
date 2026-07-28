@@ -1,0 +1,154 @@
+# =============================================================================
+# GÖSTERGE ENVANTERİ  (İP2)
+# =============================================================================
+# Okuma zincirinin tek doğru kaynağı. Üç yer buraya bakar:
+#   İP3  sentetik üreteç  → hangi göstergeyi hangi ölçekte çizeceğini buradan okur
+#   İP7  açı→değer        → ham ibre açısını buradaki scale ile değere çevirir
+#   İP10 MQTT yayını      → gauge_id / type / unit alanlarını buradan doldurur
+#
+# Kalibrasyon MANUEL girilir (endüstri standardı budur, otomatik kalibrasyon
+# kapsam dışı). Yeni bir gösterge test edilecekse önce buraya satırı eklenir.
+#
+# Sürüm: 1        Son güncelleme: 2026-07-28        Sahibi: Reşit Asrav
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# AÇI KONVANSİYONU  —  tüm açılar DERECE, matematik konvansiyonu
+# -----------------------------------------------------------------------------
+#   0°   = saat 3 yönü (sağ)          90° = saat 12 yönü (yukarı)
+#   180° = saat 9 yönü (sol)         270° = saat 6 yönü (aşağı)   [= -90°]
+#   Pozitif yön = saat yönünün TERSİ (CCW)
+#
+#                     90°
+#                      |
+#           135°       |       45°
+#                \     |     /
+#         180° --------+-------- 0°
+#                /     |     \
+#           225°       |      315° (= -45°)
+#                      |
+#                     270° (= -90°)
+#
+# Tipik 270°'lik bir gösterge: ibre sol-altta (225°) başlar, saat yönünde
+# döner, sağ-altta (-45°) biter.  →  angle_min: 225, angle_max: -45, cw
+#
+# NOT: OpenCV'de y ekseni AŞAĞI doğru artar. Görüntüden açı hesaplarken
+# atan2(-(y_uc - y_merkez), x_uc - x_merkez) kullan — eksi işareti bunun için.
+# -----------------------------------------------------------------------------
+
+version: 1
+updated: 2026-07-28
+
+# Her göstergede tekrar etmemek için ortak varsayılanlar.
+# Bir gösterge kendi içinde aynı anahtarı yazarsa onunki geçerli olur.
+defaults:
+  conf_threshold: 0.70      # bunun altındaki okuma → status: unreadable (İP15)
+  decimals: 1               # yayınlanan değerin ondalık basamağı
+  synthetic:                # İP3 sentetik üreteç görünüm ayarları
+    face_color: white
+    needle_color: black
+    tick_major: 11          # ana çizgi sayısı (min ve max dahil)
+    tick_minor: 4           # iki ana çizgi arası küçük çizgi
+
+gauges:
+
+  # ---------------------------------------------------------------- analog ---
+  - id: PT-101                        # inspect/reading mesajındaki gauge_id
+    name: Kazan çıkış basıncı
+    type: analog                      # analog | digital | lamp | valve
+    unit: bar
+    location: Kazan dairesi, hat A
+    waypoint: WP-04                   # Özgür'ün altın tur durağı (boş bırakılabilir)
+    scale:
+      min: 0.0                        # kadranın en küçük değeri
+      max: 10.0                       # en büyük değeri
+      angle_min: 225                  # min değerdeyken ibrenin açısı
+      angle_max: -45                  # max değerdeyken ibrenin açısı
+      direction: cw                   # min'den max'a giderken dönüş yönü: cw | ccw
+      linear: true                    # false ise düzgün ölçekli değil (bkz. FI-310)
+    alarm:                            # opsiyonel — status: out_of_range / alarm üretir
+      warn_above: 8.0
+      crit_above: 9.2
+    notes: 270° kadran, referans gösterge — ilk kalibrasyon bunun üstünde yapılacak
+
+  - id: TI-205
+    name: Besleme suyu sıcaklığı
+    type: analog
+    unit: "°C"
+    location: Kazan dairesi, giriş
+    waypoint: WP-04
+    scale:
+      min: 0
+      max: 150
+      angle_min: 210                  # 240°'lik dar kadran — konvansiyonun
+      angle_max: -30                  # farklı süpürme açısında da çalıştığını test eder
+      direction: cw
+      linear: true
+    alarm:
+      crit_above: 120
+    synthetic:
+      tick_major: 7                   # defaults'u ezer: 0,25,50,...,150
+
+  - id: FI-310
+    name: Debimetre (hat B)
+    type: analog
+    unit: m³/h
+    location: Pompa odası
+    scale:
+      min: 0
+      max: 100
+      angle_min: -45                  # ibre sağ-altta başlıyor, SOLA dönüyor
+      angle_max: 225                  # → direction: ccw
+      direction: ccw
+      linear: false                   # karekök ölçekli debimetre
+    notes: >-
+      linear:false olan ilk gösterge. İP7'de doğrusal formül bunu ıskalayacak;
+      ölçüm tablosunda ayrı satır olarak raporlanacak (bilinçli zorluk örneği).
+
+  # --------------------------------------------------------------- digital ---
+  - id: DP-401
+    name: Dijital fark basınç paneli
+    type: digital
+    unit: kPa
+    location: Kontrol panosu
+    waypoint: WP-07
+    digits:
+      count: 4                        # ekrandaki hane sayısı
+      decimals: 1                     # 123.4 gibi
+      style: seven_segment            # seven_segment | lcd_text
+      allow_minus: true               # negatif değer gösterebilir mi
+    range:                            # OCR sonucu makul mü — sağlık kontrolü
+      min: -50.0
+      max: 200.0
+    reading:
+      conf_threshold: 0.80            # OCR'da eşik daha yüksek tutuldu
+    notes: İP11 (PaddleOCR / Tesseract letsgodigital) hedefi
+
+  # ------------------------------------------------------------------ lamp ---
+  - id: LM-501
+    name: Pompa çalışma ikaz lambası
+    type: lamp
+    location: Pompa odası, pano üstü
+    waypoint: WP-05
+    states:                           # value alanına bu isimlerden biri basılır
+      - name: "off"
+        meaning: Pompa durdu
+      - name: green
+        meaning: Normal çalışıyor
+      - name: red
+        meaning: Arıza
+        alarm: true                   # bu duruma düşerse status: alarm
+    notes: HSV renk eşiği + parlaklık; yanıp sönme durumunda son 3 kare oylanır
+
+  # ----------------------------------------------------------------- valve ---
+  - id: VL-601
+    name: Ana hat kelebek vana
+    type: valve
+    location: Hat A, çıkış
+    waypoint: WP-06
+    states:
+      - name: open
+        meaning: Kol boru hattına paralel
+      - name: closed
+        meaning: Kol boru hattına dik
+    notes: Kol açısı ±20° içindeyse o duruma sayılır, arada kalırsa unreadable
