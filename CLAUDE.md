@@ -38,6 +38,11 @@ görüntü ──► tespit ──► kırp ──► okuma ──────�
    `outputs/metrics/` altına yazılır ve günlük rapora işlenir.
 5. **Sentetik-önce.** Yöntem önce sentetik veride oturur (ground truth bedava),
    sonra gerçek fotoğrafa geçilir.
+6. **🚨 TÜM COMMIT'LER REŞİT ASRAV ADINA.** Commit mesajına **asla** `Co-Authored-By`
+   satırı, "Claude", "AI", "generated with" gibi hiçbir ibare eklenmez. Bu staj işi
+   Reşit'in işidir ve geçmişte öyle görünmelidir. Commit atmadan önce mesajı kontrol et.
+   Commit başlığı iş paketi numarasıyla başlar: `IP6: Hough ibre okuma calisiyor`
+   (git geçmişinde Türkçe karakter kullanılmıyor).
 
 ---
 
