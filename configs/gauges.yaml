@@ -65,6 +65,9 @@ gauges:
       angle_min: 225                  # min değerdeyken ibrenin açısı
       angle_max: -45                  # max değerdeyken ibrenin açısı
       direction: cw                   # min'den max'a giderken dönüş yönü: cw | ccw
+      sweep_deg: 270                  # SAĞLAMA TOPLAMI: kadranın süpürme açısı.
+                                      # Yanlış 'direction' geometriden anlaşılamaz —
+                                      # burayı yazarsan config.py tutarsızlığı yakalar.
       linear: true                    # false ise düzgün ölçekli değil (bkz. FI-310)
     alarm:                            # opsiyonel — status: out_of_range / alarm üretir
       warn_above: 8.0
@@ -83,6 +86,7 @@ gauges:
       angle_min: 210                  # 240°'lik dar kadran — konvansiyonun
       angle_max: -30                  # farklı süpürme açısında da çalıştığını test eder
       direction: cw
+      sweep_deg: 240
       linear: true
     alarm:
       crit_above: 120
@@ -100,6 +104,7 @@ gauges:
       angle_min: -45                  # ibre sağ-altta başlıyor, SOLA dönüyor
       angle_max: 225                  # → direction: ccw
       direction: ccw
+      sweep_deg: 270
       linear: false                   # karekök ölçekli debimetre
     notes: >-
       linear:false olan ilk gösterge. İP7'de doğrusal formül bunu ıskalayacak;
