@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from gauge_vision.config import load_gauges
-from gauge_vision.synth.dial import CANVAS_PX, NEEDLE_LEN_RATIO, render_analog
+from gauge_vision.synth.dial import CANVAS_PX, NEEDLE_LEN_RATIO, DialLook, render_analog
 
 GAUGES = load_gauges()
 ANALOG_IDS = [gid for gid, g in GAUGES.items() if g.type == "analog"]
@@ -21,6 +21,19 @@ ANALOG_IDS = [gid for gid, g in GAUGES.items() if g.type == "analog"]
 def _aci_olc(center, nokta) -> float:
     """Piksel çiftinden açı — OpenCV'de y aşağı arttığı için sinüs terimi eksili."""
     return math.degrees(math.atan2(-(nokta[1] - center[1]), nokta[0] - center[0]))
+
+
+def _aci_farki(a: float, b: float) -> float:
+    """İki açı arasındaki en kısa fark (derece, işaretsiz)."""
+    return abs((a - b + 180) % 360 - 180)
+
+
+def _parlaklik(img, truth, aci: float) -> float:
+    """İbrenin bulunması gereken yarıçapta, verilen açıdaki piksel parlaklığı."""
+    r = truth.radius_px * NEEDLE_LEN_RATIO * 0.6
+    x = round(truth.center_px[0] + r * math.cos(math.radians(aci)))
+    y = round(truth.center_px[1] - r * math.sin(math.radians(aci)))
+    return float(img[y, x].mean())
 
 
 @pytest.mark.parametrize("gid", ANALOG_IDS)
@@ -50,8 +63,8 @@ def test_ibre_ucu_beyan_edilen_acida(gid):
     _, truth = render_analog(g, deger)
 
     olculen = _aci_olc(truth.center_px, truth.tip_px)
-    fark = (olculen - truth.angle_deg + 180) % 360 - 180
-    assert abs(fark) < 1.0, f"{gid}: uç {olculen:.1f}°, etiket {truth.angle_deg:.1f}°"
+    assert _aci_farki(olculen, truth.angle_img_deg) < 1.0, \
+        f"{gid}: uç {olculen:.1f}°, etiket {truth.angle_img_deg:.1f}°"
 
 
 @pytest.mark.parametrize("gid", ANALOG_IDS)
@@ -62,15 +75,43 @@ def test_ibre_gercekten_cizilmis(gid):
     """
     g = GAUGES[gid]
     img, truth = render_analog(g, (g.scale.min + g.scale.max) / 2)
-    r = truth.radius_px * NEEDLE_LEN_RATIO * 0.6      # ibrenin üstünde bir nokta
 
-    def parlaklik(aci: float) -> float:
-        x = round(truth.center_px[0] + r * math.cos(math.radians(aci)))
-        y = round(truth.center_px[1] - r * math.sin(math.radians(aci)))
-        return float(img[y, x].mean())
+    assert _parlaklik(img, truth, truth.angle_img_deg) < 100, f"{gid}: ibre yönünde koyu piksel yok"
+    assert _parlaklik(img, truth, truth.angle_img_deg + 90) > 200, f"{gid}: kadran beyaz değil"
 
-    assert parlaklik(truth.angle_deg) < 100, f"{gid}: ibre yönünde koyu piksel yok"
-    assert parlaklik(truth.angle_deg + 90) > 200, f"{gid}: ibre dışında kadran beyaz değil"
+
+def test_yatik_kamerada_iki_aci_ayriliyor():
+    """Kamera yatıksa kadran çerçevesindeki açı sabit kalır, görüntüdeki kayar.
+
+    Bu ayrım İP6/İP7 arasındaki sınır: İP6 görüntüden `angle_img_deg`'i ölçer,
+    İP7 değere çevirmek için `angle_deg`'e ihtiyaç duyar. İkisi karıştırılırsa
+    yatık her karede okuma sessizce kayar.
+    """
+    g = GAUGES["PT-101"]
+    roll = 20.0
+    img, truth = render_analog(g, 5.0, look=DialLook(roll_deg=roll))
+
+    assert truth.angle_deg == pytest.approx(90.0), "kadran çerçevesi yatıklıktan etkilenmez"
+    assert truth.angle_img_deg == pytest.approx(90.0 + roll)
+
+    olculen = _aci_olc(truth.center_px, truth.tip_px)
+    assert _aci_farki(olculen, truth.angle_img_deg) < 1.0
+
+    # Görüntü gerçekten döndü mü: ibre yeni açıda koyu, eski açıda beyaz olmalı.
+    assert _parlaklik(img, truth, truth.angle_img_deg) < 100
+    assert _parlaklik(img, truth, truth.angle_deg) > 200
+
+
+def test_varyasyon_goruntuyu_degistiriyor():
+    """DialLook alanları çiziciye gerçekten geçiyor mu — sessizce yok sayılmasın."""
+    g = GAUGES["PT-101"]
+    temel, t_temel = render_analog(g, 5.0)
+    farkli, t_farkli = render_analog(g, 5.0, look=DialLook(radius_ratio=0.30,
+                                                          center_offset_px=(15, -10),
+                                                          background_bgr=(150, 150, 150)))
+    assert t_farkli.radius_px < t_temel.radius_px
+    assert t_farkli.center_px != t_temel.center_px
+    assert not np.array_equal(temel, farkli)
 
 
 @pytest.mark.parametrize("gid", ANALOG_IDS)
