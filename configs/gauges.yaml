@@ -106,6 +106,10 @@ gauges:
       direction: ccw
       sweep_deg: 270
       linear: false                   # karekök ölçekli debimetre
+    synthetic:
+      tick_major: 6                   # 0,20,...,100 — karekök ölçek alt uçta
+                                      # sıkıştığı için 11 etiket üst üste biner;
+                                      # gerçek debimetreler de orayı seyrek etiketler
     notes: >-
       linear:false olan ilk gösterge. İP7'de doğrusal formül bunu ıskalayacak;
       ölçüm tablosunda ayrı satır olarak raporlanacak (bilinçli zorluk örneği).

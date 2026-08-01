@@ -104,6 +104,7 @@ class Gauge:
     digits: dict[str, Any] | None = None # digital
     states: list[dict[str, Any]] = field(default_factory=list)  # lamp / valve
     alarm: dict[str, float] = field(default_factory=dict)
+    synthetic: dict[str, Any] = field(default_factory=dict)  # İP3 çizim ayarları
     notes: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)  # ham sözlük
 
@@ -186,6 +187,9 @@ def _build_gauge(entry: dict[str, Any], defaults: dict[str, Any], where: str) ->
         digits=entry.get("digits"),
         states=entry.get("states") or [],
         alarm=entry.get("alarm") or {},
+        # Çizim ayarları da defaults < gösterge sırasıyla birleşir: TI-205 sadece
+        # tick_major'ı ezip renkleri varsayılandan almaya devam edebilsin diye.
+        synthetic={**(defaults.get("synthetic") or {}), **(entry.get("synthetic") or {})},
         notes=entry.get("notes"),
         raw=entry,
     )
