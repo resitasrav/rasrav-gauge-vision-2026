@@ -4,7 +4,7 @@
 > `../akilli-fabrika-staj-2026` — proje tanımı, 16 iş paketi ve günlük/haftalık raporlar
 > orada. Buradaki iş bitince oradaki günlük rapora da işlenir.
 >
-> **Son güncelleme:** 2026-07-28
+> **Son güncelleme:** 2026-07-30
 
 ---
 
@@ -82,8 +82,9 @@ Tam tanım: [configs/gauges.yaml](configs/gauges.yaml) dosya başlığı.
 ```
 configs/gauges.yaml     Gösterge envanteri — İP2 ✅ (zincirin temeli)
 src/gauge_vision/
-  config.py             Envanter yükleyici + doğrulama — İP2 ✅
-  synth/                Sentetik gösterge üreteci — İP3
+  config.py             Envanter yükleyici + doğrulama + değer→açı — İP2/İP3 ✅
+  synth/  dial.py       Kadran çizici (DialLook varyasyon, DialTruth etiket) — İP3 ✅
+          generate.py   Tohumlu veri seti üreteci, JSONL etiket — İP3 ✅
   detect/               YOLO gösterge tespiti — İP5
   read/                 needle.py (İP6) · calibrate.py (İP7)
                         digital.py (İP11) · state.py lamba/vana (İP12)
@@ -108,6 +109,8 @@ ki tekrar üretilebilsin.
 ```powershell
 .\.venv\Scripts\Activate.ps1          # ortamı aç (venv: Python 3.13)
 python -m pytest                      # testler
+python scripts\uret_sentetik.py       # 100 sentetik görüntü + etiket (İP3)
+python scripts\kadran_onizle.py       # kadranı kaydırıcıyla elle dene
 python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys())"
 ```
 
@@ -135,13 +138,17 @@ python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys
 | İP | Konu | Durum |
 |:--:|---|:--:|
 | İP2 | `configs/gauges.yaml` envanteri + `config.py` yükleyici | ✅ 28.07 |
-| İP3 | Sentetik üreteç v0 (100 görüntü + otomatik etiket) | ⬜ sıradaki |
-| İP1 | Veri taraması (Roboflow/Kaggle gauge setleri) | ⬜ |
-| İP4 | Mini literatür (~10 makale) | ⬜ |
+| İP3 | Sentetik üreteç v0 (100 görüntü + otomatik etiket) | ✅ 30.07 |
+| İP1 | Veri taraması (Roboflow/Kaggle gauge setleri) | ⬜ sıradaki |
+| İP4 | Mini literatür (~10 makale) | ⬜ sıradaki |
 | İP5-İP16 | bkz. rapor deposu `RESIT/Resit_is_paketleri.md` | ⬜ |
 
 **Envanterdeki değerler şu an varsayım** — gerçek gösterge listesi danışmandan gelince
-`gauges.yaml` güncellenecek, kod değişmeyecek (2. kural bunun için).
+`gauges.yaml` güncellenecek, kod değişmeyecek (2. kural bunun için). Sentetik veri de
+bu varsayımdan beslendiği için envanter değişince `uret_sentetik.py` yeniden koşturulur.
+
+**Mevcut sentetik veri:** `data/synthetic/v0` — 100 görüntü, tohum 0
+(PT-101 34 · TI-205 33 · FI-310 33). Testler: 47/47.
 
 ---
 
