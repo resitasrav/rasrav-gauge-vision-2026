@@ -101,7 +101,8 @@ data/  raw/ synthetic/ real/     🔒 git'e girmez (real = fabrika görüntüsü
 models/                 🔒 ağırlıklar
 outputs/ figures/ metrics/       🔒 koşu çıktıları, rapor figürleri
 notebooks/              Deneme/keşif — kalıcı kod src/ altına taşınır
-docs/                   Ölçüm tabloları, karar notları
+docs/  literatur_ozeti.md   Mini literatür + plana yansıyan K1-K6 kararları — İP4 ✅
+                        Ölçüm tabloları, karar notları
 ```
 
 **Kural:** notebook'ta keşfet, ama kalıcı olan her şey `src/gauge_vision/` altına
@@ -145,8 +146,8 @@ python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys
 |:--:|---|:--:|
 | İP2 | `configs/gauges.yaml` envanteri + `config.py` yükleyici | ✅ 28.07 |
 | İP3 | Sentetik üreteç v0 (100 görüntü + otomatik etiket) | ✅ 30.07 |
+| İP4 | Mini literatür → `docs/literatur_ozeti.md` | ✅ 31.07 |
 | İP1 | Veri taraması (Roboflow/Kaggle gauge setleri) | ⬜ sıradaki |
-| İP4 | Mini literatür (~10 makale) | ⬜ sıradaki |
 | İP5-İP16 | bkz. rapor deposu `RESIT/Resit_is_paketleri.md` | ⬜ |
 
 **Envanterdeki değerler şu an varsayım** — gerçek gösterge listesi danışmandan gelince
