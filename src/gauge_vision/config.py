@@ -28,6 +28,11 @@ DEFAULT_CONFIG = REPO_ROOT / "configs" / "gauges.yaml"
 
 GAUGE_TYPES = ("analog", "digital", "lamp", "valve")
 
+# Karekök ölçekli kadran (fark basınçlı debimetre): akış Q ∝ √ΔP, ibre ise ΔP ile
+# orantılı sapar → ibrenin süpürmedeki oranı değerin KARESİ kadardır. Ölçek alt uçta
+# sıkışık, üst uçta seyrektir. `linear: false` olan göstergeler bu üsse tabidir.
+SQRT_SCALE_EXPONENT = 2.0
+
 
 class ConfigError(ValueError):
     """Envanter dosyası bozuk veya eksik."""
@@ -55,6 +60,32 @@ class Scale:
         if self.direction == "cw":
             return (self.angle_min - self.angle_max) % 360
         return (self.angle_max - self.angle_min) % 360
+
+    def fraction_for_value(self, value: float) -> float:
+        """`value` kadranın neresinde — 0.0 (min ucu) ile 1.0 (max ucu) arası oran.
+
+        Doğrusal kadranda oran değerle aynı; karekök ölçekli kadranda değerin
+        karesiyle orantılıdır (bkz. SQRT_SCALE_EXPONENT).
+        """
+        if not self.min <= value <= self.max:
+            raise ValueError(
+                f"{value} kadran aralığı dışında ({self.min}–{self.max}) — "
+                f"ibre kadranın dışına çizilemez"
+            )
+        frac = (value - self.min) / (self.max - self.min)
+        return frac if self.linear else frac ** SQRT_SCALE_EXPONENT
+
+    def angle_for_value(self, value: float) -> float:
+        """`value` değerindeyken ibrenin açısı (derece, CCW pozitif).
+
+        Kadran geometrisi tek yerde dursun diye buraya kondu: İP3'ün sentetik
+        üreteci ibreyi buna göre çizer, İP7'nin açı→değer dönüşümü bunun tersidir.
+        Formül iki ayrı dosyada yazılsaydı biri düzeltilip diğeri unutulurdu.
+
+        `cw` kadranda min'den max'a giderken açı AZALIR — pozitif yön CCW olduğu için.
+        """
+        offset = self.fraction_for_value(value) * self.sweep_deg
+        return self.angle_min - offset if self.direction == "cw" else self.angle_min + offset
 
 
 @dataclass(frozen=True)

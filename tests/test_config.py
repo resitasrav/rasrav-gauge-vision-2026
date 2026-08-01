@@ -98,6 +98,64 @@ def test_beyan_edilen_supurme_gerceklesiyor():
             assert g.scale.sweep_deg == pytest.approx(g.scale.sweep_declared, abs=0.5)
 
 
+# --------------------------------------------------------------------------
+# değer → açı  (İP3 ibreyi buna göre çizecek, İP7 bunun tersini alacak)
+# --------------------------------------------------------------------------
+
+def test_uc_degerler_beyan_edilen_acilara_oturuyor():
+    """min → angle_min, max → angle_max. Formül YAML'ın iki ucunu da tutturmalı."""
+    for g in load_gauges().values():
+        if g.type != "analog":
+            continue
+        s = g.scale
+        assert s.angle_for_value(s.min) == pytest.approx(s.angle_min), f"{g.id} alt uç"
+        assert s.angle_for_value(s.max) == pytest.approx(s.angle_max), f"{g.id} üst uç"
+
+
+def test_pt101_orta_deger_saat_12de():
+    """0-10 bar'lık 270° kadranın ortası (5 bar) tam yukarıyı, yani 90°'yi göstermeli.
+
+    Elle hesabı: 225° - (0.5 × 270°) = 90°. Çapa değeri bilerek elle seçildi —
+    formülü kendi formülüyle doğrulamak bir şey kanıtlamaz.
+    """
+    s = load_gauges()["PT-101"].scale
+    assert s.angle_for_value(5.0) == pytest.approx(90.0)
+    assert s.angle_for_value(2.5) == pytest.approx(157.5)   # 225 - 67.5
+
+
+def test_ti205_dar_kadranda_da_dogru():
+    """240°'lik kadran: 75 °C ortada → 210° - 120° = 90°."""
+    s = load_gauges()["TI-205"].scale
+    assert s.angle_for_value(75) == pytest.approx(90.0)
+
+
+def test_fi310_karekok_olcegi_dogrusaldan_ayriliyor():
+    """Karekök ölçekli debimetrede ibre yarıda değil, süpürmenin 1/4'ünde olur.
+
+    50 m³/h → oran (0.5)² = 0.25 → -45° + 67.5° = 22.5°.
+    Doğrusal sansaydı 90° çıkardı; aradaki 67.5°'lik fark İP7'de doğrusal
+    formülün bu göstergede neden ıskalayacağını sayısal olarak gösteriyor.
+    """
+    s = load_gauges()["FI-310"].scale
+    assert s.angle_for_value(50) == pytest.approx(22.5)
+    assert s.angle_for_value(50) != pytest.approx(90.0)
+
+
+def test_ccw_kadranda_aci_artiyor():
+    """FI-310 saat yönünün tersine dönüyor → değer arttıkça açı da artmalı."""
+    s = load_gauges()["FI-310"].scale
+    assert s.angle_for_value(80) > s.angle_for_value(20)
+
+
+def test_kadran_disi_deger_reddediliyor():
+    """11 bar'lık bir ibre 10 bar'lık kadrana çizilemez — sessizce kırpmak yerine patla."""
+    s = load_gauges()["PT-101"].scale
+    with pytest.raises(ValueError, match="kadran aralığı dışında"):
+        s.angle_for_value(11.0)
+    with pytest.raises(ValueError, match="kadran aralığı dışında"):
+        s.angle_for_value(-0.1)
+
+
 def test_ayni_id_iki_kez_hata_veriyor(tmp_path):
     ikiz = {
         "version": 1,
