@@ -4,6 +4,12 @@
 > `../akilli-fabrika-staj-2026` — proje tanımı, 16 iş paketi ve günlük/haftalık raporlar
 > orada. Buradaki iş bitince oradaki günlük rapora da işlenir.
 >
+> **Ekip modülleriyle uyuşmazlık bulunca** (şema ≠ kod, aracın ihtiyacı karşılamaması)
+> çalışma durdurulup cevap beklenmez — bulgu önerisiyle birlikte
+> `../ortak uyusmazliklar/uyusmazliklar.md` dosyasına yazılır, işe devam edilir.
+> Ölçülebilir bir soruysa sentetik veride ölçülüp sayıyla gidilir. Detay: rapor
+> deposundaki CLAUDE.md §5b.
+>
 > **Son güncelleme:** 2026-07-30
 
 ---
