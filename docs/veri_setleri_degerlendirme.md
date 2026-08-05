@@ -112,14 +112,58 @@ referans olarak kullanılamazlar.
 ileride yalnızca niteliksel gözlem veya İP14 (zor koşullar) için birkaç test videosu
 düzeyinde değerlendirilebilir.
 
+## 2.3. A1 ve A2 ERİŞİLEMİYOR — indirme bağlantısı ölü (05.08) 🔴
+
+İP5'e geçilirken A1 (SyntheticGauges) ve A2 (RealGauges) indirilmek istenmiş, **Google
+Drive klasörü HTTP 404 döndürmüştür.** İki bağımsız yöntemle denenmiştir: `gdown`
+kütüphanesi (klasör listesi alınamadı) ve doğrudan HTTP isteği (404). Yayın sayfası
+(`jjcvision.com`) bağlantıyı hâlâ listelemekte olup klasörün kaldırıldığı veya
+erişiminin kısıtlandığı anlaşılmaktadır.
+
+**Etkisi ikiye ayrılır:**
+
+- **İP5 için orta.** Tespit eğitimi başka setlerle yapılabilmektedir (aşağıdaki A9).
+- **İP8 için ağır.** §2.2'de A5 etiketsiz olduğu için elenmiş, İP8'in gerçek-görüntü
+  ground truth ihtiyacının **A2 üzerinden karşılanacağı** kaydedilmişti. A2 de
+  erişilemez olduğuna göre, gerçek görüntüde ibre değeri/açısı etiketli **elde kalan
+  kaynak yoktur.** İP8'in ölçüm planı yeniden kurulmalıdır.
+
+**İP8 için üç seçenek:**
+
+1. **A6 (Detect-and-read-meters)** — depo iki Drive dosyası yayımlamaktadır ve ikisi de
+   erişilebilir durumdadır (HTTP 200). Tanıma kümesinde ibre, kadran ve **değer** bilgisi
+   bulunmaktadır. Öncelikli aday hâline gelmiştir; içeriği açılıp doğrulanmalıdır.
+2. **Kendi gerçek verimizi etiketlemek.** İP13'te zaten masa üstü canlı test yapılacaktır;
+   aynı düzenekte bilinen değerlerde fotoğraf çekilerek küçük ama **tam kontrollü** bir
+   gerçek küme kurulabilir. Endava'nın kendi değerlendirmesini de bu yolla yaptığı §2.2'de
+   kayıtlıdır.
+3. Yazarlarla iletişime geçilerek A1/A2'nin yeni adresinin istenmesi (yanıt süresi belirsiz,
+   plan buna bağlanamaz).
+
+## 2.4. A9 — Roboflow-100 `gauge-u2lwv`, Hugging Face aynası ✅ **İNDİRİLDİ**
+
+A3'ün (Roboflow) API anahtarı beklenirken, aynı ailenin bir setinin Hugging Face üzerinde
+**anahtarsız** yayımlandığı tespit edilmiştir: `Francesco/gauge-u2lwv`.
+
+- **235 gerçek endüstriyel fotoğraf** (158 eğitim · 25 doğrulama · 52 test), 640×640
+- COCO kutu etiketi; kategoriler: `1 gauges` (kadran yüzü) ve `2 numbers` (kadran
+  üzerindeki sayılar). Eğitim bölümünde **265 kadran** kutusu bulunmaktadır.
+- Lisans `cc`, kapı yok, toplam 10,9 MB (parquet)
+- Kaynak: Roboflow-100 kıyaslama derlemesi, 2022
+
+**Değeri:** İP5'in ihtiyacı olan **gerçek** fotoğrafı sağlamaktadır ve K1 kararının
+gerektirdiği karışık eğitim bu setle kurulabilmiştir. `2 numbers` kategorisi şimdilik
+kullanılmamakta, İP11 için saklanmaktadır. Sınırı: yalnızca tespit etiketi vardır; ibre
+açısı veya okunan değer içermez, dolayısıyla İP8'in ihtiyacını karşılamaz.
+
 ## 3. Planlanan Kullanım
 
 | İş paketi | Kullanılacak veri | Gerekçe |
 |---|---|---|
-| İP5 — tespit | A1 + A4 + A3 + kendi sentetik verimiz (karışık eğitim) | K1 kararı: sentetik tek başına yetersiz |
-| İP6 — ibre açısı | Önce kendi sentetik verimiz (yöntem oturtma), sonra A1 ve A4 (bağımsız doğrulama) | Kendi verimizde ground truth tam kontrolümüzde; A4 gerçekçi arka planla zorluk basamağı ekliyor |
-| İP7 — açı→değer | Kendi sentetik verimiz + A1/A4'ün skala min/max keypoint'leri | Kadran çapaları gerekli |
-| İP8 — gerçek test | **A2 (RealGauges)** | Gerçek görüntüde etiketli ibre değeri ve açısı yalnızca burada |
+| İP5 — tespit | **A9 (gerçek) + kendi sentetik verimiz** ✅ kuruldu · sonra A4 | K1 kararı: sentetik tek başına yetersiz. A1 erişilemediği için A9 onun yerini aldı |
+| İP6 — ibre açısı | Kendi sentetik verimiz ✅ *(03.08: 0,123°)*, sonra A4 (bağımsız doğrulama) | Kendi verimizde ground truth tam kontrolümüzde; A4 gerçekçi arka planla zorluk basamağı ekliyor |
+| İP7 — açı→değer | Kendi sentetik verimiz ✅ *(04.08: %0,129)* + A4'ün skala min/max keypoint'leri | Kadran çapaları gerekli |
+| İP8 — gerçek test | ~~A2 (RealGauges)~~ **erişilemiyor** → A6 veya kendi etiketlediğimiz küme (bkz. §2.3) | Gerçek görüntüde etiketli değer taşıyan tek kaynak elden çıktı |
 | İP11 — dijital OCR | A6 | Analog ve dijital paneli birlikte ele alan tek referans |
 | İP14 — zor koşullar | A4 (kirlenme/aşınma, gerçekçi aydınlatma) · gerekirse A5'ten birkaç video | A4 etiketli olduğu için hata ölçümü de yapılabilir |
 
@@ -129,10 +173,12 @@ düzeyinde değerlendirilebilir.
 
 | Erişim | Setler | Durum |
 |---|---|---|
-| Kaggle API token | A4 | ✅ **İndirildi ve incelendi** (31.07) |
-| Anahtarsız (Google Drive) | A1, A2 | İndirilecek |
-| Anahtarsız (GitHub) | A6, A7 | İndirilebilir |
-| Roboflow API anahtarı | A3 | Anahtar bekleniyor |
+| Anahtarsız (Hugging Face) | **A9** | ✅ **İndirildi ve İP5'te kullanıldı** (05.08) — 235 gerçek fotoğraf |
+| Kaggle API token | A4 | ✅ Örnek indirildi ve incelendi (31.07). Tam set için token gerekli — HF aynası da mevcut (`KhoaUIT/...`) |
+| Anahtarsız (Google Drive) | A1, A2 | 🔴 **ERİŞİLEMİYOR** — klasör 404 (05.08, bkz. §2.3) |
+| Anahtarsız (Google Drive) | A6 | Bağlantılar erişilebilir (HTTP 200); İP8 adayı olarak açılacak |
+| Anahtarsız (GitHub) | A7 | İndirilebilir |
+| Roboflow API anahtarı | A3 | Anahtar bekleniyor — **engelleyici değil**, A9 aynı aileden ve anahtarsız |
 | Kaggle API token | A5 | **İndirilmeyecek** — etiketsiz, 11,9 GB (bkz. §2.2) |
 | Doğrulanamadı | A8 | Yayın sayfası kimlik doğrulama istiyor |
 

@@ -6,8 +6,16 @@ pillow>=10.0
 matplotlib>=3.8            # hata grafikleri, rapor figürleri
 pytest>=8.0
 
-# İP5+ (tespit) — Python 3.14'te tekerlek sorunu çıkarsa venv'i 3.12 ile kur
-# ultralytics>=8.3
+# İP5 (tespit) — venv Python 3.13 ile kuruldu, CPU sürümü
+# torch CPU tekerleği ayrı dizinden gelir:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+torch>=2.0
+torchvision>=0.15
+ultralytics>=8.3           # YOLOv8 gösterge tespiti
+
+# İP1/İP5 — açık veri setlerinin indirilmesi ve okunması
+gdown>=6.0                 # Google Drive (A1/A2 için denendi, klasör 404 verdi)
+pyarrow>=15.0              # Hugging Face parquet setleri
 
 # İP10 (MQTT yayını)
 # paho-mqtt>=2.1
