@@ -18,6 +18,12 @@ data/**
 !data/README.md
 !data/**/README.md
 
+# İndirilen açık veri setlerinin kendi belgeleri bizim dokümanımız değildir;
+# yukarıdaki README istisnası Windows'ta büyük/küçük harf ayırmadığı için
+# setlerin `ReadMe.md` dosyalarını da içeri alıyordu. Değerlendirme notu
+# docs/veri_setleri_degerlendirme.md dosyasında tutulur.
+data/raw/**
+
 # --- Model ağırlıkları ---
 models/**
 !models/.gitkeep

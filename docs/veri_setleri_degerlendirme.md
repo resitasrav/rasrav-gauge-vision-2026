@@ -25,8 +25,8 @@ bağlıdır:
 | **A1** | **SyntheticGauges** | Cambridge (Howells & Cipolla, CVPRW 2021) | 10.000 eğitim + 1.000 test, 1024×1024 | COCO formatında bbox **+ keypoint**: perspektif noktaları, skala min, skala max, **ibre merkezi, ibre ucu** | CC BY-NC 4.0 | **Google Drive — anahtar gerekmiyor** | İP5, İP6, İP7 |
 | **A2** | **RealGauges** | Aynı çalışma | 6 gösterge; her biri için 36 fotoğraf + 3×5 sn video | Tespit: merkez koordinatı · Poz: düzleme normal · **Okuma: ibre değeri ve açısı** | CC BY-NC 4.0 | **Google Drive — anahtar gerekmiyor** | **İP8** |
 | **A3** | Analog Meter (Roboflow) | Roboflow Universe | ~7.700 görüntü | Sınıflar: `Center`, `Gauge`, `Max`, `Min`, `Pointer base/end/middle/start/tip` — keypoint niteliğinde | Sette değişken | **Roboflow API anahtarı** | İP5, İP6 |
-| **A4** | Synthetic Data for Precision Gauge Reading | Kaggle (Endava) | Belirtilmemiş | Segmentasyon maskesi, keypoint, hesaplanmış değer | Kaggle sayfasında | **Kaggle API token** | İP5, İP6 |
-| **A5** | Pressure Gauge Reader Data | Kaggle (Aalborg atıksu pompa istasyonları) | Belirtilmemiş | Gerçek saha görüntüleri/videoları | Kaggle sayfasında | **Kaggle API token** | İP8, İP14 |
+| **A4** | Synthetic Data for Precision Gauge Reading | Kaggle (Endava) | DS5.0: 1.000 · DS6.0: 500 görüntü · 2,3 GB | COCO: gövde, kadran yüzü, **ibre** ve skala değerleri için bbox + **segmentasyon maskesi**; skala değerlerinde okunan değer de var. Keypoint: **ibre ucu, gösterge merkezi, min ve max skala çizgisi** | Kaggle sayfasında | Kaggle API token | İP5, İP6, İP7 |
+| A5 | Pressure Gauge Reader Data | Kaggle (Aalborg atıksu pompa istasyonları) | 11,9 GB video | **ETİKETSİZ** — bkz. §2.2 | CC BY-SA 4.0 | Kaggle API token | Sınırlı |
 | A6 | Detect-and-read-meters | GitHub (shuyansy) | Belirtilmemiş | Tespit (COCO) + tanıma (Labelme): açı, kadran, değer | MIT | Depo bağlantısı | İP5, İP11 |
 | A7 | NRC-GAMMA | GitHub (NRC Kanada) | 28.883 tam görüntü + 57.766 kırpım | Rakam kadranı etiketleri | Açık, ticari kullanım dahil | Doğrudan | Sınırlı — rakamlı gaz sayacı, ibreli gösterge değil |
 | A8 | SyncG | Nature Sci. Data 2026 | 20.000, 145 ortam | Tespit, keypoint, segmentasyon, OCR | Doğrulanamadı | Yayın sayfası kimlik doğrulama istiyor | İP5, İP6 |
@@ -68,16 +68,60 @@ korunmaktadır; çelişki çözülene kadar temkinli tarafta kalınması tercih 
 
 ---
 
+## 2.1. A4 (Endava) — İndirilip İncelendi ✅
+
+Set indirilmiş, `ReadMe.md` ve bir örnek etiket dosyası doğrudan incelenmiştir.
+
+- **DS5.0:** 1.000 görüntü, her görüntüde bir gösterge. **Skala min/max değerleri ve yay
+  uzunluğu rastgeleleştirilmiştir.** Arka planlar Stable Diffusion ile üretilmiş gerçek
+  endüstriyel sahnelerdir.
+- **DS6.0:** 500 görüntü, ek olarak **ana çizgi sayısı da değişkendir**.
+- Üretim Houdini tabanlı özel bir hat ile yapılmıştır; modeller openmmlab çatısıyla ve
+  **yalnızca sentetik veriyle sıfırdan** eğitilmiştir.
+- Örnek etiket dosyasında doğrulanan alanlar: `category_name` (`dial` vb.), `bbox`,
+  `segmentation` (RLE), `camera_matrix` (4×4), `camera_focal_length` ve
+  **`synth_dial_value`** (göstergenin gerçek değeri).
+- COCO dosyaları görev bazında ayrılmıştır: `train__inst_coco.json` / `val__inst_coco.json`
+  (örnek/segmentasyon) ve `train__kps_coco.json` / `val__kps_coco.json` (keypoint).
+
+**Modül açısından değeri:** Bu set, kendi sentetik üretecimizin ürettiği etiketin üstüne
+üç şey daha koymaktadır: gerçekçi arka plan, kadran üzerinde kirlenme/aşınma ve kamera
+matrisi. Kendi üretecimizin düz beyaz zemin üzerindeki temiz kadranlarıyla arasındaki fark,
+İP8'e geçmeden önce yöntemin ne kadar dayanıklı olduğunu ölçmek için bilinçli bir basamak
+oluşturmaktadır.
+
+**Ayrıca dikkate değer:** Endava'nın yaklaşımı bizimkiyle aynı yönde ilerlemiştir — skala
+yay uzunluğunun (180°–320°) ve ana çizgi sayısının rastgeleleştirilmesi, bizim
+`gauges.yaml` üzerinden yaptığımız çeşitlendirmenin karşılığıdır. Bu, İP3'te seçilen
+tasarımın bağımsız bir doğrulaması sayılabilir.
+
+## 2.2. A5 (Aalborg) — Etiketsiz olduğu tespit edildi, öncelik düşürüldü ⚠️
+
+İlk değerlendirmede bu set İP8 (gerçek görüntüde uçtan uca ölçüm) adayı olarak
+işaretlenmişti. Endava'nın `ReadMe.md` dosyasındaki ifade bunu geçersiz kılmaktadır:
+
+> "Since this dataset does not include labeled data, we manually annotated a small subset
+> of frames from the test videos to use as ground truth."
+
+Yani set **11,9 GB ham video** olup ground truth içermemektedir. Endava'nın yayımladığı
+CSV dosyaları da etiket değil **model tahminidir** ("predicted reading"); hata ölçümünde
+referans olarak kullanılamazlar.
+
+**Karar:** 11,9 GB indirilmeyecektir. İP8'in gerçek-görüntü ground truth ihtiyacı **A2
+(RealGauges)** üzerinden karşılanacaktır; orada ibre değeri ve açısı etiketlidir. A5
+ileride yalnızca niteliksel gözlem veya İP14 (zor koşullar) için birkaç test videosu
+düzeyinde değerlendirilebilir.
+
 ## 3. Planlanan Kullanım
 
 | İş paketi | Kullanılacak veri | Gerekçe |
 |---|---|---|
-| İP5 — tespit | A1 + A3 + kendi sentetik verimiz (karışık eğitim) | K1 kararı: sentetik tek başına yetersiz |
-| İP6 — ibre açısı | Önce kendi sentetik verimiz (yöntem oturtma), sonra A1 (bağımsız doğrulama) | Kendi verimizde ground truth tam kontrolümüzde |
-| İP7 — açı→değer | Kendi sentetik verimiz + A1'in skala min/max keypoint'leri | Kadran çapaları gerekli |
-| İP8 — gerçek test | **A2** + (varsa) A5 | Gerçek görüntüde etiketli değer yalnızca burada |
+| İP5 — tespit | A1 + A4 + A3 + kendi sentetik verimiz (karışık eğitim) | K1 kararı: sentetik tek başına yetersiz |
+| İP6 — ibre açısı | Önce kendi sentetik verimiz (yöntem oturtma), sonra A1 ve A4 (bağımsız doğrulama) | Kendi verimizde ground truth tam kontrolümüzde; A4 gerçekçi arka planla zorluk basamağı ekliyor |
+| İP7 — açı→değer | Kendi sentetik verimiz + A1/A4'ün skala min/max keypoint'leri | Kadran çapaları gerekli |
+| İP8 — gerçek test | **A2 (RealGauges)** | Gerçek görüntüde etiketli ibre değeri ve açısı yalnızca burada |
 | İP11 — dijital OCR | A6 | Analog ve dijital paneli birlikte ele alan tek referans |
-| İP14 — zor koşullar | A5 (saha görüntüleri) | Gerçek saha aydınlatması ve kirlilik |
+| İP14 — zor koşullar | A4 (kirlenme/aşınma, gerçekçi aydınlatma) · gerekirse A5'ten birkaç video | A4 etiketli olduğu için hata ölçümü de yapılabilir |
 
 ---
 
@@ -85,22 +129,27 @@ korunmaktadır; çelişki çözülene kadar temkinli tarafta kalınması tercih 
 
 | Erişim | Setler | Durum |
 |---|---|---|
-| Anahtarsız (Google Drive) | A1, A2 | **Hemen indirilebilir** |
-| Anahtarsız (GitHub) | A6, A7 | Hemen indirilebilir |
-| Kaggle API token | A4, A5 | **Talep edildi** |
-| Roboflow API anahtarı | A3 | **Talep edildi** |
+| Kaggle API token | A4 | ✅ **İndirildi ve incelendi** (31.07) |
+| Anahtarsız (Google Drive) | A1, A2 | İndirilecek |
+| Anahtarsız (GitHub) | A6, A7 | İndirilebilir |
+| Roboflow API anahtarı | A3 | Anahtar bekleniyor |
+| Kaggle API token | A5 | **İndirilmeyecek** — etiketsiz, 11,9 GB (bkz. §2.2) |
 | Doğrulanamadı | A8 | Yayın sayfası kimlik doğrulama istiyor |
 
 ---
 
 ## 5. Açık Kalan Hususlar
 
-- A4 ve A5'in görüntü sayısı, çözünürlüğü ve lisansı Kaggle sayfaları JavaScript ile
-  oluşturulduğundan otomatik olarak okunamamıştır; token sağlandığında doğrudan
-  meta verisinden teyit edilecektir.
 - A1/A2'nin CC BY-NC lisansı ticari kullanımı kısıtlamaktadır. Staj sonrasında proje
   ticari bir ürüne dönüşürse bu setlerle eğitilen ağırlıklar kullanılamaz; kayıt altına
   alınmıştır.
+- A4'ün lisansı Kaggle sayfasında belirtilmiştir ancak dosya içinden teyit edilememiştir;
+  yayında yalnızca A5'e (CC BY-SA 4.0) atıf zorunluluğu belirtilmektedir. Eğitim
+  öncesinde teyit edilecektir.
+- A4 yalnızca sentetik veriyle sıfırdan eğitilen bir hattın çıktısıdır; İP4'teki K1 kararı
+  (sentetik tek başına yetersiz) ile aynı gerilim burada da vardır. Endava kendi
+  değerlendirmesini etiketsiz gerçek videolar üzerinde el ile etiketleyerek yapmış olup
+  sayısal sonuç yayımlamamıştır; bu nedenle karşılaştırma dayanağı olarak kullanılamaz.
 - A7 (NRC-GAMMA) rakam kadranlı gaz sayaçlarından oluşmaktadır; ibreli gösterge okuma
   görevine doğrudan katkısı sınırlıdır. Yalnızca İP11'e dolaylı fayda sağlayabilir.
 
