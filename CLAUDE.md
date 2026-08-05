@@ -103,7 +103,8 @@ data/  raw/ synthetic/ real/     🔒 git'e girmez (real = fabrika görüntüsü
 models/                 🔒 ağırlıklar
 outputs/ figures/ metrics/       🔒 koşu çıktıları, rapor figürleri
 notebooks/              Deneme/keşif — kalıcı kod src/ altına taşınır
-docs/  literatur_ozeti.md   Mini literatür + plana yansıyan K1-K6 kararları — İP4 ✅
+docs/  devam_notu.md   👈 OTURUMA BAŞLARKEN BUNU OKU — sırada ne var, neye dikkat et
+       literatur_ozeti.md   Mini literatür + plana yansıyan K1-K6 kararları — İP4 ✅
        veri_setleri_degerlendirme.md  8 açık set, etiket türüne göre — İP1 ✅
                         Ölçüm tabloları, karar notları
 ```
