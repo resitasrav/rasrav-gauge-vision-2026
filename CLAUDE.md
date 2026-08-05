@@ -92,8 +92,9 @@ src/gauge_vision/
   synth/  dial.py       Kadran çizici (DialLook varyasyon, DialTruth etiket) — İP3 ✅
           generate.py   Tohumlu veri seti üreteci, JSONL etiket — İP3 ✅
   detect/               YOLO gösterge tespiti — İP5
-  read/                 needle.py (İP6) · calibrate.py (İP7)
-                        digital.py (İP11) · state.py lamba/vana (İP12)
+  read/  needle.py      İbre açısı: kutupsal tarama + Hough — İP6 ✅
+         evaluate.py    Ölçüm zemini (çözünürlük/JPEG/merkez düğmeleri) — İP6 ✅
+                        calibrate.py (İP7) · digital.py (İP11) · state.py (İP12)
   publish/              MQTT inspect/reading yayını — İP10
 tests/                  pytest — her modülün doğruluk testi
 scripts/                Tek seferlik yardımcılar (veri indirme, toplu üretim)
@@ -118,6 +119,7 @@ ki tekrar üretilebilsin.
 .\.venv\Scripts\Activate.ps1          # ortamı aç (venv: Python 3.13)
 python -m pytest                      # testler
 python scripts\uret_sentetik.py       # 100 sentetik görüntü + etiket (İP3)
+python scripts\olc_ip6.py             # açı hatası tabloları + rapor figürleri (İP6)
 python scripts\kadran_onizle.py       # kadranı kaydırıcıyla elle dene
 python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys())"
 ```
@@ -149,12 +151,18 @@ python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys
 | İP3 | Sentetik üreteç v0 (100 görüntü + otomatik etiket) | ✅ 30.07 |
 | İP4 | Mini literatür → `docs/literatur_ozeti.md` | ✅ 31.07 |
 | İP1 | Veri taraması → `docs/veri_setleri_degerlendirme.md` | ✅ 31.07 |
-| İP6 | Klasik ibre okuma (Hough + kutupsal tarama) → `read/needle.py` | ⬜ **sıradaki** |
-| İP5, İP7-İP16 | bkz. rapor deposu `RESIT/Resit_is_paketleri.md` | ⬜ |
+| İP6 | Klasik ibre okuma → `read/needle.py` + `read/evaluate.py` | ✅ 03.08 · **0,123°** |
+| İP7 | Açı→değer kalibrasyonu → `read/calibrate.py` | ⬜ **sıradaki** |
+| İP5, İP8-İP16 | bkz. rapor deposu `RESIT/Resit_is_paketleri.md` | ⬜ |
 
 **H2 sırası:** plan İP5→İP6→İP7 idi, **İP6 öne alındı**. İP5 açık veri setlerinin
 indirilmesini bekliyor (K1: sentetik tek başına yetersiz); İP6 elde hazır sentetik ground
-truth ile hemen başlayabiliyor. K3 uyarınca Hough ve kutupsal tarama karşılaştırmalı denenir.
+truth ile hemen başlayabildi. K3 kıyası yapıldı: **kutupsal tarama** (0,123°) Hough'u
+(0,328°) hem doğrulukta hem hızda geçti, İP7'nin girdisi odur.
+
+**İP6'nın açı ölçümü merkezi doğru bildiğini varsayar.** Merkez 8 px kaydığında hata
+0,123° → 3,652° oluyor; yani zincirin doğruluğunu İP5'in kutu merkezi belirleyecek.
+Ölçüm: `outputs/metrics/ip6_aci_hatasi.json`.
 
 **Envanterdeki değerler şu an varsayım** — gerçek gösterge listesi danışmandan gelince
 `gauges.yaml` güncellenecek, kod değişmeyecek (2. kural bunun için). Sentetik veri de
