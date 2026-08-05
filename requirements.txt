@@ -6,9 +6,13 @@ pillow>=10.0
 matplotlib>=3.8            # hata grafikleri, rapor figürleri
 pytest>=8.0
 
-# İP5 (tespit) — venv Python 3.13 ile kuruldu, CPU sürümü
-# torch CPU tekerleği ayrı dizinden gelir:
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# İP5 (tespit) — venv Python 3.13
+# torch tekerleği PyPI'dan DEĞİL, ayrı dizinden gelir. Bu makinede RTX 4050
+# (6 GB, compute 8.9) olduğu için CUDA 12.6 sürümü kuruldu:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+# GPU'suz bir makinede kurarken cu126 yerine cpu yazılır. Yanlış tekerlek
+# sessizce çalışır, sadece kart kullanılmaz: `torch.cuda.is_available()` ile
+# doğrula, `scripts/egit_ip5.py` cihazı ölçüm dosyasına yazar.
 torch>=2.0
 torchvision>=0.15
 ultralytics>=8.3           # YOLOv8 gösterge tespiti

@@ -108,13 +108,25 @@ def merkez_hatasi(model, veri_yaml: Path, conf: float = 0.25) -> dict:
     }
 
 
-def egit(ad: str, *, epoch: int, imgsz: int, batch: int, seed: int) -> dict:
+def cihaz_sec(istenen: str | None = None) -> str:
+    """Eğitim cihazı. Belirtilmezse GPU varsa GPU, yoksa CPU.
+
+    Cihaz ölçüm dosyasına da yazılıyor: bir koşunun süresi cihaz bilinmeden
+    raporlanamaz, iki koşu da ancak aynı cihazdaysa karşılaştırılabilir.
+    """
+    if istenen:
+        return istenen
+    import torch
+    return "0" if torch.cuda.is_available() else "cpu"
+
+
+def egit(ad: str, *, epoch: int, imgsz: int, batch: int, seed: int, cihaz: str) -> dict:
     from ultralytics import YOLO
 
     veri_yaml = Path(VERI_KOK) / ad / "gauge.yaml"
     model = YOLO(TEMEL_MODEL)
     model.train(data=str(veri_yaml), epochs=epoch, imgsz=imgsz, batch=batch,
-                seed=seed, project=KOSU_KOK, name=ad, exist_ok=True,
+                seed=seed, device=cihaz, project=KOSU_KOK, name=ad, exist_ok=True,
                 verbose=False, plots=False, val=True)
 
     olcum = model.val(data=str(veri_yaml), split="test", verbose=False)
@@ -169,17 +181,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--imgsz", type=int, default=416)
     p.add_argument("--batch", type=int, default=8)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--cihaz", default=None, help="'0' (GPU) veya 'cpu'; boşsa otomatik")
     args = p.parse_args(argv)
 
     if not (Path(VERI_KOK) / "gercek" / "gauge.yaml").exists():
         print("veri yok — önce scripts/hazirla_ip5_veri.py çalıştır")
         return 1
 
+    cihaz = cihaz_sec(args.cihaz)
+    print(f"cihaz: {cihaz}" + ("  (GPU bulunamadı — CPU'da koşacak)" if cihaz == "cpu" else ""))
+
     sonuclar = {}
     for ad in args.yapilandirma:
         print(f"\n=== {ad} ===")
         sonuclar[ad] = egit(ad, epoch=args.epoch, imgsz=args.imgsz,
-                            batch=args.batch, seed=args.seed)
+                            batch=args.batch, seed=args.seed, cihaz=cihaz)
         s = sonuclar[ad]
         print(f"  mAP50 {s['mAP50']:.3f}  mAP50-95 {s['mAP50_95']:.3f}  "
               f"merkez sapması {s['merkez_sapmasi_px']['ortalama']:.1f} px "
@@ -191,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         "tarih": date.today().isoformat(),
         "temel_model": TEMEL_MODEL,
         "egitim": {"epoch": args.epoch, "imgsz": args.imgsz, "batch": args.batch,
-                   "seed": args.seed, "cihaz": "cpu"},
+                   "seed": args.seed, "cihaz": cihaz},
         "test_kumesi": "gerçek fotoğraflar (Roboflow-100 gauge-u2lwv test bölümü)",
         "yapilandirmalar": sonuclar,
     }
