@@ -160,6 +160,34 @@ class Gauge:
     def state_names(self) -> list[str]:
         return [s["name"] for s in self.states]
 
+    def tick_values(self) -> tuple[list[float], list[float]]:
+        """Ana ve ara çizgilerin DEĞERLERİ (açıları değil): (majors, minors).
+
+        Çizgiler değer ekseninde eşit aralıklıdır; açıya çevirmeyi
+        `Scale.angle_for_value` yapar. Karekök ölçekli kadranda bu, çizgilerin
+        görüntüde eşit aralıklı ÇIKMAMASINI sağlar — gerçek debimetreler de
+        böyledir.
+
+        Burada duruyor çünkü çizgi düzeni kadranın kendi özelliğidir, çizim
+        ayrıntısı değil: sentetik üreteç (İP3) onları ÇİZMEK için, yatıklık
+        kestirimi (İP8) onları GÖRÜNTÜDE ARAMAK için kullanır. İkisi ayrı yerde
+        tanımlansaydı üreteç ile okuyucu sessizce ayrışabilirdi.
+        """
+        if self.scale is None:
+            raise ValueError(f"{self.id}: çizgi düzeni sadece analog göstergede var")
+
+        n_major = int(self.synthetic.get("tick_major", 11))
+        n_minor = int(self.synthetic.get("tick_minor", 4))
+
+        step = (self.scale.max - self.scale.min) / (n_major - 1)
+        majors = [self.scale.min + i * step for i in range(n_major)]
+
+        minors: list[float] = []
+        for i in range(n_major - 1):
+            for j in range(1, n_minor + 1):
+                minors.append(majors[i] + step * j / (n_minor + 1))
+        return majors, minors
+
 
 def load_gauges(path: str | Path | None = None) -> dict[str, Gauge]:
     """Envanteri yükler, `defaults` bloğunu uygular, doğrular.

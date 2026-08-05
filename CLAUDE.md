@@ -10,7 +10,7 @@
 > Ölçülebilir bir soruysa sentetik veride ölçülüp sayıyla gidilir. Detay: rapor
 > deposundaki CLAUDE.md §5b.
 >
-> **Son güncelleme:** 2026-08-05
+> **Son güncelleme:** 2026-08-07
 
 ---
 
@@ -20,10 +20,10 @@ Fabrikada devriye gezen pan-tilt kameralı platformun görüntüsünden **analog
 dijital panel, ikaz lambası ve vana pozisyonunu okuyup sayıya çevirir**.
 
 ```
-görüntü ──► tespit ──► kırp ──► okuma ──────────► kalibrasyon ──► MQTT
-            (İP5)              analog: ibre açısı   açı→değer      inspect/reading
-                               (İP6, Hough)         (İP7)          (İP10)
-                               dijital: OCR (İP11)
+görüntü ─► tespit ─► merkez ─► okuma ──────────────► kalibrasyon ─► MQTT
+           (İP5)     rafinesi  analog: ibre açısı     açı→değer      inspect/reading
+                     + yatıklık (İP6, kutupsal)       (İP7)          (İP10)
+                     kestirimi  dijital: OCR (İP11)
                                lamba/vana (İP12)
 ```
 
@@ -88,14 +88,17 @@ Tam tanım: [configs/gauges.yaml](configs/gauges.yaml) dosya başlığı.
 ```
 configs/gauges.yaml     Gösterge envanteri — İP2 ✅ (zincirin temeli)
 src/gauge_vision/
-  config.py             Envanter yükleyici + doğrulama + değer→açı — İP2/İP3 ✅
+  config.py             Envanter + doğrulama + değer↔açı + çizgi düzeni — İP2/İP3 ✅
   synth/  dial.py       Kadran çizici (DialLook varyasyon, DialTruth etiket) — İP3 ✅
           generate.py   Tohumlu veri seti üreteci, JSONL etiket — İP3 ✅
   detect/dataset.py     YOLO etiket dönüşümü + karışık eğitim kümesi — İP5 ✅
+         refine.py      Kadran merkezi: kutu → çember (gradyan doğruları) — İP5 ✅
   read/  needle.py      İbre açısı: kutupsal tarama + Hough — İP6 ✅
          evaluate.py    Ölçüm zemini (çözünürlük/JPEG/merkez düğmeleri) — İP6 ✅
          calibrate.py   Açı→değer + durum (ok/unreadable/out_of_range/alarm) — İP7 ✅
+         roll.py        Kamera yatıklığı: çizgi deseniyle korelasyon — İP8 ✅
                         digital.py (İP11) · state.py lamba/vana (İP12)
+  pipeline.py           Zincir: tespit→merkez→yatıklık→açı→değer ✅
   publish/              MQTT inspect/reading yayını — İP10
 tests/                  pytest — her modülün doğruluk testi
 scripts/                Tek seferlik yardımcılar (veri indirme, toplu üretim)
@@ -125,6 +128,8 @@ python scripts\olc_ip6.py             # açı hatası tabloları + rapor figürl
 python scripts\olc_ip7.py             # okuma hatası % + ablasyonlar (İP7)
 python scripts\hazirla_ip5_veri.py    # sentetik/gercek/karisik eğitim kümeleri (İP5)
 python scripts\egit_ip5.py            # YOLO eğit + mAP ve kutu merkezi sapması (İP5)
+python scripts\olc_zincir.py --veri data/synthetic/v1   # uçtan uca + 2x3 ablasyon
+python scripts\canli_oku.py --kaynak 0 --gosterge PT-101  # kamera demosu
 python scripts\kadran_onizle.py       # kadranı kaydırıcıyla elle dene
 python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys())"
 ```
@@ -162,29 +167,48 @@ python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys
 | İP1 | Veri taraması → `docs/veri_setleri_degerlendirme.md` | ✅ 31.07 |
 | İP6 | Klasik ibre okuma → `read/needle.py` + `read/evaluate.py` | ✅ 03.08 · **0,123°** |
 | İP7 | Açı→değer → `Scale.value_for_angle` + `read/calibrate.py` | ✅ 04.08 · **%0,129** |
-| İP5 | Gösterge tespiti (YOLO) → `detect/dataset.py` | ✅ 05.08 · **mAP50 0,967** |
+| İP5 | Gösterge tespiti (YOLO) → `detect/dataset.py` + `refine.py` | ✅ 05-07.08 · **mAP50 0,967** |
+| — | Zincir uçtan uca (`pipeline.py`) + yatıklık (`read/roll.py`) | ✅ 07.08 · **%0,19** |
 | İP8-İP16 | bkz. rapor deposu `RESIT/Resit_is_paketleri.md` | ⬜ |
 
-**🔴 Zincirin darboğazı okuma değil tespit.** İP5'in kutu merkezi kadran çapının %4,02'si
-kadar kayıyor; bu sapma İP6'ya verildiğinde açı hatası 0,123° → **8,772°** oluyor
-(≈ %3,25 tam skala, p95 %6,2). Yani hedefin çoğunu tespit yiyor. Sıradaki iş kutuyu kaba
-konum olarak alıp **kadran dairesini Hough çemberiyle rafine etmek.**
+**Zincir sentetikte hedefin çok altında: %0,19 tam skala** (hedef %5), okunamayan 0/100.
+Bütçe artık okuma yönteminde tıkanıyor — zincir kendi tabanının 1,5 katında:
+
+| Kalem | Puan | Payı |
+|---|---|---|
+| Okuma yöntemi (İP6+İP7) | 0,129 | %68 |
+| Tespit merkezi (rafineden sonra) | 0,051 | %27 |
+| Yatıklık kestirim artığı | 0,010 | %5 |
+
+**Bu sayı zorluğu değil, yöntemin tabanını ölçer.** Sentetikte cam yansıması, açılı
+bakış ve sanayi aydınlatması yok. Buradan sonraki kazanç gerçek görüntüde aranmalı (İP8).
+
+**⚠ Üç eşik sentetikte kalibre edildi, gerçek görüntüde yeniden ölçülmeli:**
+`refine.MAX_ARTIK_ORANI` · `refine.MAX_YAYILMA_ORANI` · `roll.MIN_UYUM`. Kod içinde
+işaretli; ölçülen dağılımlar da yanlarında yazılı.
 
 **H2 sırası:** plan İP5→İP6→İP7 idi, **İP6 öne alındı**. İP5 açık veri setlerinin
 indirilmesini bekliyor (K1: sentetik tek başına yetersiz); İP6 elde hazır sentetik ground
 truth ile hemen başlayabildi. K3 kıyası yapıldı: **kutupsal tarama** (0,123°) Hough'u
 (0,328°) hem doğrulukta hem hızda geçti, İP7'nin girdisi odur.
 
-**İP6'nın açı ölçümü merkezi doğru bildiğini varsayar.** Merkez 8 px kaydığında hata
-0,123° → 3,652° oluyor; yani zincirin doğruluğunu İP5'in kutu merkezi belirleyecek.
-Ölçüm: `outputs/metrics/ip6_aci_hatasi.json`.
+**İP6'nın açı ölçümü merkezi doğru bildiğini varsayar** — merkez 8 px kaydığında hata
+0,123° → 3,652° oluyordu. `detect/refine.py` bu varsayımı karşılamak için yazıldı:
+merkez kutudan değil kadran çemberinden geliyor, sapma %1,31 → **%0,06**.
+
+**Yeni kapı yazınca sahte girdiyle sına.** 07.08'de aynı hata iki modülde arka arkaya
+yapıldı: `refine.py` ve `roll.py`'ın ilk güven kapıları **rastgele gürültüyü kabul
+ediyordu** (50/50 ve 8/10). İkisinde de sebep aynı: kapı "cevap makul mü" diye
+soruyordu, "kanıt var mı" diye değil. Eşik tahminle değil, iki kümenin dağılımı
+ölçülüp aralarına konur.
 
 **Envanterdeki değerler şu an varsayım** — gerçek gösterge listesi danışmandan gelince
 `gauges.yaml` güncellenecek, kod değişmeyecek (2. kural bunun için). Sentetik veri de
 bu varsayımdan beslendiği için envanter değişince `uret_sentetik.py` yeniden koşturulur.
 
-**Mevcut sentetik veri:** `data/synthetic/v0` — 100 görüntü, tohum 0
-(PT-101 34 · TI-205 33 · FI-310 33). Testler: 47/47.
+**Mevcut sentetik veri:** `data/synthetic/v0` — 100 görüntü, tohum 0 (eğitimde kullanıldı,
+53 karesi karışık kümenin içinde) · `data/synthetic/v1` — tohum 1, **sızıntısız ölçüm
+kümesi**, zincir ölçümü bunda koşar. Testler: 149/149.
 
 ---
 

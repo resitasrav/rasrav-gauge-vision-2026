@@ -43,15 +43,27 @@ FIGUR_YOLU = "outputs/figures/ip8_zincir_hatasi.png"
 IP7_ORTALAMA_YUZDE = 0.129
 
 
+YATIKLIK_MODLARI = ("kestirim", "yok", "etiketten")
+
+
 def kosu(veri: Path, agirlik: Path, gauges: dict, conf: float,
-         *, yatiklik_etiketten: bool = False, model=None) -> list[dict]:
+         *, yatiklik: str = "kestirim", rafine: bool = True,
+         model=None) -> list[dict]:
     """Veri setini uçtan uca okur.
 
-    `yatiklik_etiketten` bir **ablasyon anahtarıdır**: gerçek görüntüde kameranın
-    yatıklığı bilinmez, o yüzden varsayılan kapalıdır. Açıldığında yatıklığın
-    zincirdeki payı ölçülür — düzeltmenin yazılmaya değip değmeyeceği buna bakılarak
-    kararlaştırılır.
+    İki **ablasyon anahtarı** var; ikisi de bütçe kalemlerini ayırmak için:
+
+    `yatiklik` — kamera yatıklığının nereden geldiği:
+        `kestirim`  kadranın çizgilerinden ölçülür — sahada olacak olan budur
+        `yok`       0 kabul edilir — düzeltmenin kazancı buna göre ölçülür
+        `etiketten` ground truth verilir — kestirimin ne kadar iyi olduğunu
+                    gösteren TAVAN; erişilemez bir referanstır, hedef değil
+
+    `rafine` — merkezin kadran çemberinden düzeltilmesi. Kapatıldığında merkez
+    doğrudan tespit kutusundan gelir; ikisi arasındaki fark rafinenin kazancıdır.
     """
+    if yatiklik not in YATIKLIK_MODLARI:
+        raise ValueError(f"bilinmeyen yatıklık modu '{yatiklik}' — {YATIKLIK_MODLARI}")
     if model is None:
         from ultralytics import YOLO
         model = YOLO(str(agirlik))
@@ -63,8 +75,10 @@ def kosu(veri: Path, agirlik: Path, gauges: dict, conf: float,
         if kare is None:
             raise FileNotFoundError(veri / k["file"])
 
-        s = read_frame(kare, model, gauge, detect_conf=conf,
-                       roll_deg=k["roll_deg"] if yatiklik_etiketten else 0.0)
+        verilen_roll = {"kestirim": None, "yok": 0.0,
+                        "etiketten": k["roll_deg"]}[yatiklik]
+        s = read_frame(kare, model, gauge, detect_conf=conf, refine=rafine,
+                       roll_deg=verilen_roll)
         aralik = gauge.scale.max - gauge.scale.min
 
         kayit = {
@@ -83,6 +97,14 @@ def kosu(veri: Path, agirlik: Path, gauges: dict, conf: float,
                 if s.center_px else None
             ),
             "kadran_capi_px": 2 * k["radius_px"],
+            "merkez_rafine": s.center_refined,
+            # Kestirilen yatıklığın etikete göre hatası — düzeltmenin kendi
+            # doğruluğu, okuma hatasından ayrı izlenebilsin.
+            "yatiklik_hatasi_deg": (
+                round((s.roll_deg - k["roll_deg"] + 180) % 360 - 180, 3)
+                if yatiklik == "kestirim" else None
+            ),
+            "yatiklik_kestirildi": s.roll is not None,
         }
         if kayit["olculen"] is not None:
             kayit["hata_yuzde"] = abs(kayit["olculen"] - kayit["gercek"]) / aralik * 100
@@ -117,6 +139,13 @@ def ozetle(kayitlar: list[dict], gauges: dict) -> dict:
         "hata_yuzde_tam_skala": genel.as_dict(2),
         "merkez_sapmasi_px": error_stats(sapmalar).as_dict(2),
         "merkez_sapmasi_yuzde_kadran_capi": error_stats(capa_gore).as_dict(2),
+        # Rafinenin kaç karede kabul edildiği: kapılar çok sıkıysa kazanç
+        # görünmez ve sebebi burada anlaşılır.
+        "rafine_kabul": sum(1 for k in kayitlar if k.get("merkez_rafine")),
+        "yatiklik_kestirilen": sum(1 for k in kayitlar if k.get("yatiklik_kestirildi")),
+        "yatiklik_hatasi_deg": error_stats(
+            [abs(k["yatiklik_hatasi_deg"]) for k in kayitlar
+             if k.get("yatiklik_hatasi_deg") is not None]).as_dict(3),
         "gosterge_bazli": gosterge_bazli,
         "ip7_karsilastirma": {
             "ip7_ortalama_yuzde": IP7_ORTALAMA_YUZDE,
@@ -169,6 +198,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--veri", default=VARSAYILAN_VERI)
     p.add_argument("--agirlik", default=VARSAYILAN_AGIRLIK)
     p.add_argument("--conf", type=float, default=0.25)
+    p.add_argument("--rafine", action=argparse.BooleanOptionalAction, default=True,
+                   help="merkezi kadran çemberinden düzelt (varsayılan açık)")
+    p.add_argument("--yatiklik", choices=YATIKLIK_MODLARI, default="kestirim",
+                   help="yatıklığın kaynağı (varsayılan: çizgilerden kestirim)")
     p.add_argument("--figur", action=argparse.BooleanOptionalAction, default=True)
     args = p.parse_args(argv)
 
@@ -184,13 +217,16 @@ def main(argv: list[str] | None = None) -> int:
     model = YOLO(str(agirlik))   # tek kez yüklensin, ablasyon aynı modeli kullansın
 
     gauges = load_gauges()
-    kayitlar = kosu(veri, agirlik, gauges, args.conf, model=model)
+    kayitlar = kosu(veri, agirlik, gauges, args.conf, rafine=args.rafine,
+                    yatiklik=args.yatiklik, model=model)
     ozet = {
         "is_paketi": "IP8-prova",
         "tarih": date.today().isoformat(),
         "veri_seti": str(veri).replace("\\", "/"),
         "agirlik": str(agirlik).replace("\\", "/"),
-        "not": "merkez tespitten geliyor; yatıklık düzeltmesi uygulanmıyor",
+        "merkez_rafinesi": args.rafine,
+        "yatiklik_kaynagi": args.yatiklik,
+        "not": "merkez ve yatıklık GÖRÜNTÜDEN geliyor; etiket kullanılmıyor",
         **ozetle(kayitlar, gauges),
     }
 
@@ -207,21 +243,60 @@ def main(argv: list[str] | None = None) -> int:
         print(f"   {gid:8s} ort %{s['ortalama']:5.2f}  p95 %{s['p95']:5.2f}  "
               f"max %{s['max']:5.2f}  okunamayan {s['okunamayan']}")
 
-    # Ablasyon: hatanın ne kadarı düzeltilmeyen yatıklıktan geliyor?
-    # Üç satırlık tablo, zincirin bütçesini üç kaleme ayırır.
-    ab = ozetle(kosu(veri, agirlik, gauges, args.conf,
-                     yatiklik_etiketten=True, model=model), gauges)
-    ozet["ablasyon_yatiklik_etiketten"] = ab
-    yat = ozet["hata_yuzde_tam_skala"]["ortalama"] - ab["hata_yuzde_tam_skala"]["ortalama"]
+    # --- Ablasyon ızgarası: iki anahtar, altı koşu ---
+    # Bütçeyi kalemlere ayırmanın tek dürüst yolu, her kalemi TEK BAŞINA kapatıp
+    # farkı ölçmek. Elle çıkarma yapılmıyor; tablo koşudan doğuyor.
+    izgara = {}
+    for rafine in (True, False):
+        for yatiklik in YATIKLIK_MODLARI:
+            if rafine == args.rafine and yatiklik == args.yatiklik:
+                izgara[(rafine, yatiklik)] = ozet          # ana koşu tekrar edilmesin
+                continue
+            izgara[(rafine, yatiklik)] = ozetle(
+                kosu(veri, agirlik, gauges, args.conf, rafine=rafine,
+                     yatiklik=yatiklik, model=model), gauges)
+
+    def ort(rafine: bool, yatiklik: str) -> float:
+        return izgara[(rafine, yatiklik)]["hata_yuzde_tam_skala"]["ortalama"]
+
+    ozet["ablasyon_izgarasi"] = {
+        f"rafine_{'acik' if r else 'kapali'}__yatiklik_{y}":
+            izgara[(r, y)]["hata_yuzde_tam_skala"]
+        for r in (True, False) for y in YATIKLIK_MODLARI
+    }
+
+    # Bütçe MEVCUT yapılandırma için: rafine açık, yatıklık kestiriliyor.
+    # "etiketten" koşusu yatıklığın MÜKEMMEL düzeltildiği hâli verir; kestirimin
+    # ondan farkı, düzeltmenin kendi artık hatasıdır.
     ozet["butce_dagilimi_puan"] = {
         "okuma_yontemi_ip7": IP7_ORTALAMA_YUZDE,
-        "tespit_merkezi": round(ab["hata_yuzde_tam_skala"]["ortalama"] - IP7_ORTALAMA_YUZDE, 3),
-        "duzeltilmeyen_yatiklik": round(yat, 3),
+        "tespit_merkezi": round(ort(True, "etiketten") - IP7_ORTALAMA_YUZDE, 3),
+        "yatiklik_kestirim_artigi": round(ort(True, "kestirim") - ort(True, "etiketten"), 3),
     }
+    ozet["kazanclar_puan"] = {
+        "merkez_rafinesi": round(ort(False, "kestirim") - ort(True, "kestirim"), 3),
+        "yatiklik_duzeltmesi": round(ort(True, "yok") - ort(True, "kestirim"), 3),
+        "ikisi_birden": round(ort(False, "yok") - ort(True, "kestirim"), 3),
+    }
+
+    print("\nablasyon ızgarası (% tam skala, ortalama):")
+    print(f"   {'':16s}" + "".join(f"{'yatıklık ' + y:>20s}" for y in YATIKLIK_MODLARI))
+    for r in (True, False):
+        etiket = "rafine açık" if r else "rafine kapalı"
+        print(f"   {etiket:16s}" + "".join(f"{ort(r, y):20.3f}" for y in YATIKLIK_MODLARI))
+
     print("\nbütçe dağılımı (% tam skala, puan olarak):")
     for ad, deger in ozet["butce_dagilimi_puan"].items():
         print(f"   {ad:26s} {deger:6.3f}")
     print(f"   {'TOPLAM':26s} {ozet['hata_yuzde_tam_skala']['ortalama']:6.3f}")
+
+    print("\nkazançlar (puan):")
+    for ad, deger in ozet["kazanclar_puan"].items():
+        print(f"   {ad:26s} {deger:+6.3f}")
+    y = ozet["yatiklik_hatasi_deg"]
+    print(f"\nrafine kabul: {ozet['rafine_kabul']}/{ozet['goruntu']}  ·  "
+          f"yatıklık kestirilen: {ozet['yatiklik_kestirilen']}/{ozet['goruntu']}")
+    print(f"yatıklık kestirim hatası: ort {y['ortalama']}°  p95 {y['p95']}°  max {y['max']}°")
 
     yol = Path(METRIK_YOLU)
     yol.parent.mkdir(parents=True, exist_ok=True)

@@ -182,24 +182,12 @@ def _draw_face(img, center, radius, face_bgr) -> None:
 
 
 def _tick_values(gauge: Gauge) -> tuple[list[float], list[float]]:
-    """Ana ve ara çizgilerin DEĞERLERİ (açıları değil).
+    """Ana ve ara çizgilerin değerleri — tanım `Gauge.tick_values`'dadır.
 
-    Çizgiler değer ekseninde eşit aralıklı; açıya çevirmeyi `angle_for_value`
-    yapar. Karekök ölçekli kadranda bu, çizgilerin görüntüde eşit aralıklı
-    ÇIKMAMASINI sağlar — gerçek debimetreler de böyle görünür.
+    Çizgi düzeni envanter tarafında duruyor ki üreteç ile yatıklık kestirimi
+    (İP8) aynı düzeni kullansın; ikisi ayrışırsa kestirim sessizce kayar.
     """
-    scale = gauge.scale
-    n_major = int(gauge.synthetic.get("tick_major", 11))
-    n_minor = int(gauge.synthetic.get("tick_minor", 4))
-
-    step = (scale.max - scale.min) / (n_major - 1)
-    majors = [scale.min + i * step for i in range(n_major)]
-
-    minors: list[float] = []
-    for i in range(n_major - 1):
-        for j in range(1, n_minor + 1):
-            minors.append(majors[i] + step * j / (n_minor + 1))
-    return majors, minors
+    return gauge.tick_values()
 
 
 def _draw_ticks(img, center, radius, gauge: Gauge) -> None:

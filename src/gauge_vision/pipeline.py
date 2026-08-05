@@ -22,8 +22,10 @@ from dataclasses import dataclass
 import numpy as np
 
 from gauge_vision.config import Gauge
+from gauge_vision.detect.refine import refine_dial
 from gauge_vision.read.calibrate import GaugeReading, read_value
 from gauge_vision.read.needle import NeedleReading, read_needle_angle
+from gauge_vision.read.roll import RollEstimate, estimate_roll
 
 # Kadran yüzünün yarıçapı tespit kutusundan türetilir. Kutu bezeli de içerdiğinden
 # ham yarının tamamı alınmaz: sentetik üreteçte dış yarıçap = kadran yarıçapı × 1,07
@@ -47,6 +49,13 @@ class FrameResult:
     needle: NeedleReading | None
     reading: GaugeReading | None
     reason: str = ""
+    # Merkez kadran çemberinden rafine edilebildi mi? Rafine kapılardan geçemezse
+    # kutu merkezinde kalınır ve bu False olur — ölçümde ikisi ayrılabilsin.
+    center_refined: bool = False
+    # Uygulanan yatıklık ve nereden geldiği. `roll` None ise kestirim yapılmamış
+    # ya da başarısız olmuştur; `roll_deg` o zaman dışarıdan verilen değerdir.
+    roll_deg: float = 0.0
+    roll: RollEstimate | None = None
 
     @property
     def ok(self) -> bool:
@@ -73,16 +82,21 @@ def read_frame(
     *,
     detect_conf: float = 0.25,
     method: str = "polar",
-    roll_deg: float = 0.0,
+    roll_deg: float | None = None,
+    refine: bool = True,
 ) -> FrameResult:
     """Karede göstergeyi bulur, ibresini ölçer, değere çevirir.
 
     Hata yükseltmez; her başarısızlık `reason` ile bildirilir. Zincir saha
     döngüsünde çalışacaktır, tek bir okunamayan kare turu düşürmemelidir.
 
-    `roll_deg` varsayılan 0'dır: gerçek görüntüde kamera yatıklığı bilinmiyor.
-    Sentetik ölçümde etiketten verilebilir; gerçekte kadranın kendi
-    geometrisinden çıkarılması gerekir (İP8, K2 ile birlikte).
+    `roll_deg=None` (varsayılan) kamera yatıklığını kadranın çizgilerinden
+    KESTİRİR (`read/roll.py`). Kestirim güvenilmezse 0 kabul edilir — yanlış bir
+    yatıklık, düzeltmemekten daha kötüdür. Sayı verilirse kestirim yapılmaz;
+    ölçümde ablasyon (0 = düzeltme yok, etiket = ideal düzeltme) böyle kurulur.
+
+    `refine` kutu merkezini kadran çemberinden düzeltir (bkz. `detect/refine.py`).
+    Ablasyon anahtarı olarak kapatılabilir — kazancı ölçülebilsin diye parametre.
     """
     sonuc = model.predict(image, conf=detect_conf, verbose=False)[0]
     if len(sonuc.boxes) == 0:
@@ -98,6 +112,23 @@ def read_frame(
     if yaricap < MIN_YARICAP_PX:
         return _bos(f"kadran çok küçük ({yaricap:.0f} px)", kutu, tespit_guveni)
 
+    # Merkez rafinesi ibre ölçümünden ÖNCE: kutupsal tarama merkeze duyarlıdır,
+    # düzeltmeyi sonradan uygulamak açıyı geriye dönük kurtarmaz.
+    rafine_edildi = False
+    if refine:
+        daire = refine_dial(image, merkez, yaricap)
+        if daire is not None:
+            merkez, yaricap = daire.center_px, daire.radius_px
+            rafine_edildi = True
+
+    # Yatıklık ibreden BAĞIMSIZ ölçülür: kaynağı kadranın çizgileridir, ibre
+    # tarama halkasının dışında kalır. Bu yüzden sırası önemli değil, ama
+    # merkezden sonra gelmeli — çizgi halkası da merkeze göre taranıyor.
+    yatiklik = None
+    if roll_deg is None:
+        yatiklik = estimate_roll(image, merkez, yaricap, gauge)
+        roll_deg = yatiklik.roll_deg if yatiklik else 0.0
+
     aci = read_needle_angle(image, merkez, yaricap, method=method)
     if aci is None:
         return _bos("ibre bulunamadı", kutu, tespit_guveni)
@@ -108,4 +139,6 @@ def read_frame(
                        confidence=aci.confidence * tespit_guveni)
 
     return FrameResult(box_xyxy=kutu, detect_conf=tespit_guveni, center_px=merkez,
-                       radius_px=yaricap, needle=aci, reading=okuma)
+                       radius_px=yaricap, needle=aci, reading=okuma,
+                       center_refined=rafine_edildi,
+                       roll_deg=roll_deg, roll=yatiklik)

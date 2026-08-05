@@ -8,17 +8,17 @@ Bu script yeni bir yöntem getirmez; üç iş paketinin çıktısını birbirine
 Ölçüm scriptleri (`olc_ip6.py`, `olc_ip7.py`) kırpımı ve merkezi **etiketten** alır;
 burada ikisi de **tespitten** gelir. Aradaki fark, zincirin gerçek hatasıdır.
 
-**Bilinçli sınırlar — demoda ekrana da yazılır, izleyen yanılmasın:**
+**Bilinçli sınır — demoda ekrana da yazılır, izleyen yanılmasın:**
 
-1. **Hangi gösterge olduğu elle veriliyor** (`--gosterge`). Tespit "burada bir gösterge
-   var" der, "bu PT-101'dir" demez. Gerçek sistemde bunu robotun durağı (waypoint)
-   söyleyecektir. Yanlış gösterge seçilirse sayı sessizce yanlış çıkar — bu yüzden
-   seçilen kimlik kareye yazılır.
-2. **Yatıklık (roll) sıfır kabul edilir.** Sentetik veride etiketten geliyordu; gerçek
-   görüntüde kadranın kendi geometrisinden çıkarılması gerekir (İP8, K2 ile birlikte).
-   Kamera yatıksa okuma yatıklık kadar kayar.
-3. **Merkez kutudan türetilir.** Ölçülen sapma kadran çapının ~%4'üdür ve zincire
-   ~%3 hata sokar (05.08). Demo bunu gizlemez; iyileştirme sıradaki iştir.
+**Hangi gösterge olduğu elle veriliyor** (`--gosterge`). Tespit "burada bir gösterge
+var" der, "bu PT-101'dir" demez. Gerçek sistemde bunu robotun durağı (waypoint)
+söyleyecektir (U11). Yanlış gösterge seçilirse değer sessizce yanlış çıkar; tek
+otomatik işaret yatıklık kestiriminin susmasıdır (`read/roll.py` uyum kapısı).
+
+06.08'de kapanan iki sınır — ekrandaki `merkez` ve `yatiklik` alanları bunları
+gösterir, ikisi de artık GÖRÜNTÜDEN geliyor ve etiket kullanılmıyor:
+  · merkez kutudan değil kadran çemberinden (`detect/refine.py`)
+  · yatıklık 0 kabul edilmiyor, kadranın çizgilerinden kestiriliyor (`read/roll.py`)
 """
 
 from __future__ import annotations
@@ -76,9 +76,15 @@ def kareyi_ciz(kare, sonuc, gauge) -> None:
         satirlar.append((f"tespit {sonuc.detect_conf:.2f} · aci {sonuc.needle.confidence:.2f}"
                          f" · kadran capi {2*sonuc.radius_px:.0f} px", RENK_BILGI, False))
 
-    # Sınırlar ekranda: demoyu izleyen neyin varsayım olduğunu bilsin.
-    satirlar.append(("gosterge kimligi ELLE verildi · yatiklik duzeltmesi YOK",
-                     RENK_BILGI, False))
+        # Merkezin ve yatıklığın NEREDEN geldiği ekranda: ikisi de zincirin
+        # doğruluğunu belirliyor ve ikisi de sessizce başarısız olabilir.
+        merkez_kaynak = "cemberden" if sonuc.center_refined else "KUTUDAN (rafine yok)"
+        yatiklik = (f"{sonuc.roll_deg:+.1f} deg (uyum {sonuc.roll.match:.2f})"
+                    if sonuc.roll else "KESTIRILEMEDI, 0 kabul edildi")
+        satirlar.append((f"merkez {merkez_kaynak} · yatiklik {yatiklik}", RENK_BILGI, False))
+
+    # Kalan sınır ekranda: demoyu izleyen neyin varsayım olduğunu bilsin.
+    satirlar.append(("gosterge kimligi ELLE verildi", RENK_BILGI, False))
 
     y = 30
     for metin, renk, buyuk in satirlar:
