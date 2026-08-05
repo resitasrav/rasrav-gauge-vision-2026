@@ -87,6 +87,54 @@ class Scale:
         offset = self.fraction_for_value(value) * self.sweep_deg
         return self.angle_min - offset if self.direction == "cw" else self.angle_min + offset
 
+    # --- ters yön: açı → değer (İP7) ------------------------------------------
+    # Aşağıdaki üçlü yukarıdaki ikilinin tersidir ve bilerek aynı sınıfta duruyor.
+    # Ayrı dosyaya konsaydı ölçek kuralı (karekök kadran, süpürme yönü) iki yerde
+    # yaşardı; biri düzeltilip diğeri unutulduğunda üretim doğru, okuma yanlış olurdu.
+
+    def fraction_for_angle(self, angle_deg: float) -> float:
+        """Açının süpürmedeki oranı — `fraction_for_value`'nun tersi.
+
+        Kadranın dışına düşen açı için 0-1 dışında bir sayı döner; kırpma
+        yapılmaz. Kırpma kararı okuma katmanına aittir (İP7/İP15): ibre
+        dayanağa yaslanmışsa `ok`, kadranın büsbütün dışındaysa `out_of_range`.
+        """
+        if self.direction == "cw":
+            offset = (self.angle_min - angle_deg) % 360.0
+        else:
+            offset = (angle_deg - self.angle_min) % 360.0
+
+        # Kadranın GERİSİNE düşen ibreyi mod 360 devasa bir pozitif sayıya
+        # çevirir: min'in 1° gerisi 359° olur ve oran 1,33 çıkar — yani "az
+        # geride" olan ibre "kadranın çok ötesinde" gibi görünür. Süpürmenin
+        # dışında kalan ölü bölgeyi ortadan bölüp gerisini negatife alıyoruz.
+        olu_bolge = 360.0 - self.sweep_deg
+        if offset > self.sweep_deg + olu_bolge / 2.0:
+            offset -= 360.0
+        return offset / self.sweep_deg
+
+    def value_for_fraction(self, fraction: float) -> float:
+        """Süpürmedeki oran → değer. Karekök kadranda üs tersine uygulanır."""
+        if fraction < 0.0:
+            raise ValueError(f"oran negatif ({fraction:.3f}) — ibre kadranın gerisinde")
+        oran = fraction if self.linear else fraction ** (1.0 / SQRT_SCALE_EXPONENT)
+        return self.min + oran * (self.max - self.min)
+
+    def value_for_angle(self, angle_deg: float) -> float:
+        """İbre açısı → gösterge değeri (İP7'nin çekirdeği).
+
+        Kadran dışındaki açıda hata yükseltir; sessizce kırpılmış bir sayı
+        döndürmek, ibrenin dayanağa yaslandığı durumu normal okuma gibi
+        gösterirdi (3. kural).
+        """
+        oran = self.fraction_for_angle(angle_deg)
+        if not 0.0 <= oran <= 1.0:
+            raise ValueError(
+                f"{angle_deg:.1f}° kadranın dışında (oran {oran:.3f}) — "
+                f"süpürme {self.angle_min:.0f}° → {self.angle_max:.0f}° ({self.direction})"
+            )
+        return self.value_for_fraction(oran)
+
 
 @dataclass(frozen=True)
 class Gauge:

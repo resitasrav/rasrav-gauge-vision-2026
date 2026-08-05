@@ -6,10 +6,17 @@
     state.py      lamba / vana durumu (İP12)
 """
 
+from gauge_vision.read.calibrate import GaugeReading, read_value
 from gauge_vision.read.needle import (
     NeedleReading,
     angle_difference_deg,
     read_needle_angle,
 )
 
-__all__ = ["NeedleReading", "angle_difference_deg", "read_needle_angle"]
+__all__ = [
+    "GaugeReading",
+    "NeedleReading",
+    "angle_difference_deg",
+    "read_needle_angle",
+    "read_value",
+]
