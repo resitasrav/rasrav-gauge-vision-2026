@@ -10,7 +10,7 @@
 > Ölçülebilir bir soruysa sentetik veride ölçülüp sayıyla gidilir. Detay: rapor
 > deposundaki CLAUDE.md §5b.
 >
-> **Son güncelleme:** 2026-07-30
+> **Son güncelleme:** 2026-08-05
 
 ---
 
@@ -102,6 +102,7 @@ models/                 🔒 ağırlıklar
 outputs/ figures/ metrics/       🔒 koşu çıktıları, rapor figürleri
 notebooks/              Deneme/keşif — kalıcı kod src/ altına taşınır
 docs/  literatur_ozeti.md   Mini literatür + plana yansıyan K1-K6 kararları — İP4 ✅
+       veri_setleri_degerlendirme.md  8 açık set, etiket türüne göre — İP1 ✅
                         Ölçüm tabloları, karar notları
 ```
 
@@ -147,8 +148,13 @@ python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys
 | İP2 | `configs/gauges.yaml` envanteri + `config.py` yükleyici | ✅ 28.07 |
 | İP3 | Sentetik üreteç v0 (100 görüntü + otomatik etiket) | ✅ 30.07 |
 | İP4 | Mini literatür → `docs/literatur_ozeti.md` | ✅ 31.07 |
-| İP1 | Veri taraması (Roboflow/Kaggle gauge setleri) | ⬜ sıradaki |
-| İP5-İP16 | bkz. rapor deposu `RESIT/Resit_is_paketleri.md` | ⬜ |
+| İP1 | Veri taraması → `docs/veri_setleri_degerlendirme.md` | ✅ 31.07 |
+| İP6 | Klasik ibre okuma (Hough + kutupsal tarama) → `read/needle.py` | ⬜ **sıradaki** |
+| İP5, İP7-İP16 | bkz. rapor deposu `RESIT/Resit_is_paketleri.md` | ⬜ |
+
+**H2 sırası:** plan İP5→İP6→İP7 idi, **İP6 öne alındı**. İP5 açık veri setlerinin
+indirilmesini bekliyor (K1: sentetik tek başına yetersiz); İP6 elde hazır sentetik ground
+truth ile hemen başlayabiliyor. K3 uyarınca Hough ve kutupsal tarama karşılaştırmalı denenir.
 
 **Envanterdeki değerler şu an varsayım** — gerçek gösterge listesi danışmandan gelince
 `gauges.yaml` güncellenecek, kod değişmeyecek (2. kural bunun için). Sentetik veri de
