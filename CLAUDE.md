@@ -94,7 +94,8 @@ src/gauge_vision/
   detect/               YOLO gösterge tespiti — İP5
   read/  needle.py      İbre açısı: kutupsal tarama + Hough — İP6 ✅
          evaluate.py    Ölçüm zemini (çözünürlük/JPEG/merkez düğmeleri) — İP6 ✅
-                        calibrate.py (İP7) · digital.py (İP11) · state.py (İP12)
+         calibrate.py   Açı→değer + durum (ok/unreadable/out_of_range/alarm) — İP7 ✅
+                        digital.py (İP11) · state.py lamba/vana (İP12)
   publish/              MQTT inspect/reading yayını — İP10
 tests/                  pytest — her modülün doğruluk testi
 scripts/                Tek seferlik yardımcılar (veri indirme, toplu üretim)
@@ -120,6 +121,7 @@ ki tekrar üretilebilsin.
 python -m pytest                      # testler
 python scripts\uret_sentetik.py       # 100 sentetik görüntü + etiket (İP3)
 python scripts\olc_ip6.py             # açı hatası tabloları + rapor figürleri (İP6)
+python scripts\olc_ip7.py             # okuma hatası % + ablasyonlar (İP7)
 python scripts\kadran_onizle.py       # kadranı kaydırıcıyla elle dene
 python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys())"
 ```
@@ -152,8 +154,9 @@ python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys
 | İP4 | Mini literatür → `docs/literatur_ozeti.md` | ✅ 31.07 |
 | İP1 | Veri taraması → `docs/veri_setleri_degerlendirme.md` | ✅ 31.07 |
 | İP6 | Klasik ibre okuma → `read/needle.py` + `read/evaluate.py` | ✅ 03.08 · **0,123°** |
-| İP7 | Açı→değer kalibrasyonu → `read/calibrate.py` | ⬜ **sıradaki** |
-| İP5, İP8-İP16 | bkz. rapor deposu `RESIT/Resit_is_paketleri.md` | ⬜ |
+| İP7 | Açı→değer → `Scale.value_for_angle` + `read/calibrate.py` | ✅ 04.08 · **%0,129** |
+| İP5 | Gösterge tespiti (YOLO) → `detect/` | ⬜ **sıradaki** |
+| İP8-İP16 | bkz. rapor deposu `RESIT/Resit_is_paketleri.md` | ⬜ |
 
 **H2 sırası:** plan İP5→İP6→İP7 idi, **İP6 öne alındı**. İP5 açık veri setlerinin
 indirilmesini bekliyor (K1: sentetik tek başına yetersiz); İP6 elde hazır sentetik ground
