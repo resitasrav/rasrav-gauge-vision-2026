@@ -107,6 +107,7 @@ def read_dataset(
     dial_diameter_px: int | None = None,
     jpeg_quality: int | None = None,
     center_jitter_px: float = 0.0,
+    center_jitter_ratio: float = 0.0,
     seed: int = 0,
     limit: int | None = None,
 ) -> list[NeedleResult]:
@@ -133,8 +134,12 @@ def read_dataset(
         # Ters sırada sıkıştırma artefaktları küçültmede yumuşar ve ölçüm iyimser çıkar.
         if jpeg_quality:
             img = _jpeg(img, jpeg_quality)
-        if center_jitter_px:
-            center = _sarsit(center, center_jitter_px, rng)
+        # Oran, kadran ÇAPINA görelidir: İP5'in tespit hatası da öyle raporlanır
+        # (piksel bir makineden diğerine taşınmaz, kadranın kaçta kaçı taşınır).
+        # İkisi birlikte verilirse toplanır.
+        sarsinti = center_jitter_px + center_jitter_ratio * 2 * radius
+        if sarsinti:
+            center = _sarsit(center, sarsinti, rng)
 
         t0 = time.perf_counter()
         okuma = read_needle_angle(img, (round(center[0]), round(center[1])), radius,

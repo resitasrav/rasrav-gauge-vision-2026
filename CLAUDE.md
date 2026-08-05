@@ -91,7 +91,7 @@ src/gauge_vision/
   config.py             Envanter yükleyici + doğrulama + değer→açı — İP2/İP3 ✅
   synth/  dial.py       Kadran çizici (DialLook varyasyon, DialTruth etiket) — İP3 ✅
           generate.py   Tohumlu veri seti üreteci, JSONL etiket — İP3 ✅
-  detect/               YOLO gösterge tespiti — İP5
+  detect/dataset.py     YOLO etiket dönüşümü + karışık eğitim kümesi — İP5 ✅
   read/  needle.py      İbre açısı: kutupsal tarama + Hough — İP6 ✅
          evaluate.py    Ölçüm zemini (çözünürlük/JPEG/merkez düğmeleri) — İP6 ✅
          calibrate.py   Açı→değer + durum (ok/unreadable/out_of_range/alarm) — İP7 ✅
@@ -122,12 +122,18 @@ python -m pytest                      # testler
 python scripts\uret_sentetik.py       # 100 sentetik görüntü + etiket (İP3)
 python scripts\olc_ip6.py             # açı hatası tabloları + rapor figürleri (İP6)
 python scripts\olc_ip7.py             # okuma hatası % + ablasyonlar (İP7)
+python scripts\hazirla_ip5_veri.py    # sentetik/gercek/karisik eğitim kümeleri (İP5)
+python scripts\egit_ip5.py            # YOLO eğit + mAP ve kutu merkezi sapması (İP5)
 python scripts\kadran_onizle.py       # kadranı kaydırıcıyla elle dene
 python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys())"
 ```
 
 - **venv Python 3.13** ile kuruldu. Sistemde 3.14/3.15 de var ama `ultralytics`/`torch`
-  o sürümlerde tekerlek sorunu çıkarabilir — İP5'e gelindiğinde 3.13 güvenli liman.
+  o sürümlerde tekerlek sorunu çıkarabilir — 3.13 güvenli liman.
+- **GPU: RTX 4050 (6 GB), torch cu126.** Eğitim kartta koşar (3 yapılandırma 5 dk; CPU'da
+  ~45 dk). `pip install torch` PyPI'dan **CPU** tekerleğini getirir ve bu **sessizce**
+  çalışır, sadece kartı kullanmaz — `torch.cuda.is_available()` ile doğrula.
+  Doğru kurulum `requirements.txt` başında yazılı.
 - `pip install -e .` yapıldı → `import gauge_vision` her yerden çalışır, `sys.path` hilesi yok.
 - Yeni bağımlılık eklerken `requirements.txt`'e de yaz (yorumlu satırlar sırasını bekliyor).
 
@@ -155,8 +161,13 @@ python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys
 | İP1 | Veri taraması → `docs/veri_setleri_degerlendirme.md` | ✅ 31.07 |
 | İP6 | Klasik ibre okuma → `read/needle.py` + `read/evaluate.py` | ✅ 03.08 · **0,123°** |
 | İP7 | Açı→değer → `Scale.value_for_angle` + `read/calibrate.py` | ✅ 04.08 · **%0,129** |
-| İP5 | Gösterge tespiti (YOLO) → `detect/` | ⬜ **sıradaki** |
+| İP5 | Gösterge tespiti (YOLO) → `detect/dataset.py` | ✅ 05.08 · **mAP50 0,967** |
 | İP8-İP16 | bkz. rapor deposu `RESIT/Resit_is_paketleri.md` | ⬜ |
+
+**🔴 Zincirin darboğazı okuma değil tespit.** İP5'in kutu merkezi kadran çapının %4,02'si
+kadar kayıyor; bu sapma İP6'ya verildiğinde açı hatası 0,123° → **8,772°** oluyor
+(≈ %3,25 tam skala, p95 %6,2). Yani hedefin çoğunu tespit yiyor. Sıradaki iş kutuyu kaba
+konum olarak alıp **kadran dairesini Hough çemberiyle rafine etmek.**
 
 **H2 sırası:** plan İP5→İP6→İP7 idi, **İP6 öne alındı**. İP5 açık veri setlerinin
 indirilmesini bekliyor (K1: sentetik tek başına yetersiz); İP6 elde hazır sentetik ground

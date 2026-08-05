@@ -43,6 +43,9 @@ COZUNURLUK_CAPLARI = (60, 80, 120, 200)
 # publisher.py:24 → QUALITY = 80. Sayı oradan alındı, tahmin değil.
 YAYIN_JPEG_Q = 80
 MERKEZ_SARSINTILARI = (2.0, 4.0, 8.0)
+# Kadran çapının oranı olarak — İP5'in ölçtüğü büyüklükle aynı birim.
+# %4,0 ve %4,8 gerçek tespit sonuçlarıdır (karışık ve gerçek-tek eğitim, 05.08).
+MERKEZ_ORANLARI = (0.01, 0.02, 0.04, 0.048, 0.08)
 
 ORNEK_SUTUN, ORNEK_SATIR = 3, 2
 ORNEK_PX = 240
@@ -95,6 +98,25 @@ def merkez_hatasi_taramasi(veri: Path, yontem: str, sarsintilar) -> dict:
         sonuclar = read_dataset(veri, method=yontem, center_jitter_px=px)
         okunan = [s for s in sonuclar if s.ok]
         tablo[f"{px:g}px"] = {
+            "okunan": len(okunan),
+            **error_stats([abs(s.angle_error_deg) for s in okunan]).as_dict(),
+        }
+    return tablo
+
+
+def merkez_oran_taramasi(veri: Path, yontem: str, oranlar) -> dict:
+    """Aynı ölçüm, kadran ÇAPININ oranı olarak — İP5'in raporladığı birimle.
+
+    İP5 kutu merkezi sapmasını "kadran çapının %'si" olarak veriyor; piksel
+    cinsinden bir tablo o sayıyla birleştirilemez, çünkü gerçek fotoğraflardaki
+    kadran çapı sentetik veridekinden farklı. Aynı birime geçmek, iki iş
+    paketinin ölçümlerini zincirleyip uçtan uca tahmin üretmeyi mümkün kılar.
+    """
+    tablo = {}
+    for oran in oranlar:
+        sonuclar = read_dataset(veri, method=yontem, center_jitter_ratio=oran)
+        okunan = [s for s in sonuclar if s.ok]
+        tablo[f"%{oran*100:g}_cap"] = {
             "okunan": len(okunan),
             **error_stats([abs(s.angle_error_deg) for s in okunan]).as_dict(),
         }
@@ -265,11 +287,17 @@ def main(argv: list[str] | None = None) -> int:
                   f"   okunamayan {s['okunamayan']}")
 
     if args.merkez:
-        print("\nmerkez kayması duyarlılığı:")
+        print("\nmerkez kayması duyarlılığı (piksel):")
         ozet["merkez_hatasi"] = merkez_hatasi_taramasi(veri, en_iyi, MERKEZ_SARSINTILARI)
         for px, satir in ozet["merkez_hatasi"].items():
             print(f"   kayma {px:>5s}  ortalama {satir['ortalama']:7.3f}°  "
                   f"p95 {satir['p95']:7.3f}°")
+
+        print("\nmerkez kayması duyarlılığı (kadran çapının oranı — İP5'in birimi):")
+        ozet["merkez_hatasi_oran"] = merkez_oran_taramasi(veri, en_iyi, MERKEZ_ORANLARI)
+        for oran, satir in ozet["merkez_hatasi_oran"].items():
+            print(f"   kayma {oran:>10s}  ortalama {satir['ortalama']:7.3f}°  "
+                  f"p95 {satir['p95']:7.3f}°  max {satir['max']:7.3f}°")
 
     metrik = Path(METRIK_YOLU)
     metrik.parent.mkdir(parents=True, exist_ok=True)
