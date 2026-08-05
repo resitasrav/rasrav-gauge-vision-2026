@@ -108,6 +108,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--gosterge", nargs="*", help="sadece bu gösterge id'leri (varsayılan: hepsi)")
     p.add_argument("--izgara", action=argparse.BooleanOptionalAction, default=True,
                    help="rapor için örnek ızgarası üret")
+    # Özet yolu parametre: ikinci bir veri seti üretilirken (örn. sızıntısız test
+    # kümesi) İP3'ün kayıtlı ölçümünün üzerine yazılmasın.
+    p.add_argument("--ozet", default=OZET_YOLU, help="ölçüm özetinin yazılacağı dosya")
     args = p.parse_args(argv)
 
     ozet = generate_dataset(args.cikti, count=args.sayi, seed=args.seed,
@@ -118,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"   {gid:8s} {n:4d}")
     print(f"etiketler: {ozet.labels_path}")
 
-    print(f"ölçüm özeti: {olcum_ozeti(Path(args.cikti), Path(OZET_YOLU), ozet)}")
+    print(f"ölçüm özeti: {olcum_ozeti(Path(args.cikti), Path(args.ozet), ozet)}")
 
     if args.izgara:
         yol = ornek_izgarasi(Path(args.cikti), Path(IZGARA_YOLU), IZGARA_SUTUN, IZGARA_SATIR)

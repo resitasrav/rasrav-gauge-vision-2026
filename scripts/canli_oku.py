@@ -31,103 +31,60 @@ from pathlib import Path
 import cv2
 
 from gauge_vision.config import load_gauges
-from gauge_vision.read.calibrate import DURUM_OK, DURUM_OKUNAMADI, read_value
-from gauge_vision.read.needle import read_needle_angle
+from gauge_vision.pipeline import read_frame
+from gauge_vision.read.calibrate import DURUM_OK
 
 VARSAYILAN_AGIRLIK = "runs/detect/models/ip5/karisik/weights/best.pt"
 CIKTI_DIZINI = "outputs/figures"
-
-# Kadran yüzünün yarıçapı kutudan türetilir. Kutu bezeli de içerdiği için ham
-# yarının tamamı alınmaz: sentetik üreteçte dış yarıçap = kadran yarıçapı × 1,07
-# (BEZEL_WIDTH_RATIO). Fazla büyük bir yarıçap tarama halkasını kadranın dışına
-# taşırır ve ana çizgiler ibre sanılabilir.
-KUTU_YARICAP_ORANI = 1 / 1.07
-
-# Kutu kare değilse (açılı bakış, kısmi örtme) kısa kenar esas alınır: uzun kenara
-# göre alınan yarıçap kadranın dışını tarar.
-MIN_YARICAP_PX = 12
 
 RENK_OK = (60, 200, 60)
 RENK_UYARI = (40, 40, 220)
 RENK_BILGI = (40, 40, 40)
 
 
-def kutudan_kadran(kutu_xyxy) -> tuple[tuple[int, int], float]:
-    """Tespit kutusundan kadran merkezi ve yarıçapı."""
-    x1, y1, x2, y2 = kutu_xyxy
-    merkez = (round((x1 + x2) / 2), round((y1 + y2) / 2))
-    yaricap = min(x2 - x1, y2 - y1) / 2 * KUTU_YARICAP_ORANI
-    return merkez, yaricap
-
-
-def kareyi_oku(kare, model, gauge, *, conf_esik: float):
-    """Tek karede tespit → açı → değer. Bulunamazsa None döner."""
-    sonuc = model.predict(kare, conf=conf_esik, verbose=False)[0]
-    if len(sonuc.boxes) == 0:
-        return None
-
-    # En güvenli kutu: karede birden çok gösterge olabilir, demo tek gösterge okur.
-    en_iyi = int(sonuc.boxes.conf.argmax())
-    kutu = sonuc.boxes.xyxy[en_iyi].tolist()
-    tespit_guveni = float(sonuc.boxes.conf[en_iyi])
-
-    merkez, yaricap = kutudan_kadran(kutu)
-    if yaricap < MIN_YARICAP_PX:
-        return {"kutu": kutu, "tespit_guveni": tespit_guveni, "okuma": None,
-                "sebep": f"kadran çok küçük ({yaricap:.0f} px)"}
-
-    aci = read_needle_angle(kare, merkez, yaricap, method="polar")
-    if aci is None:
-        return {"kutu": kutu, "tespit_guveni": tespit_guveni, "okuma": None,
-                "sebep": "ibre bulunamadı"}
-
-    # Tespit güveni ile açı güveni çarpılıyor: zincirin güveni en zayıf halkasından
-    # yüksek olamaz. İP15'in eşiği bu birleşik sayıya uygulanacak.
-    okuma = read_value(gauge, aci.angle_img_deg, roll_deg=0.0,
-                       confidence=aci.confidence * tespit_guveni)
-    return {"kutu": kutu, "tespit_guveni": tespit_guveni, "aci": aci, "okuma": okuma,
-            "merkez": merkez, "yaricap": yaricap}
-
-
 def kareyi_ciz(kare, sonuc, gauge) -> None:
-    """Sonucu kareye yazar. Okunamadıysa değer YAZILMAZ (3. kural)."""
-    yuksek = 30
+    """`FrameResult`'ı kareye yazar. Okunamadıysa değer YAZILMAZ (3. kural).
 
-    def yaz(metin, renk=RENK_BILGI, buyuk=False):
-        nonlocal yuksek
-        cv2.putText(kare, metin, (12, yuksek), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9 if buyuk else 0.55, renk, 2 if buyuk else 1, cv2.LINE_AA)
-        yuksek += 34 if buyuk else 24
+    Yazılar kadranın üstüne binmesin diye üstten değil ALTTAN yukarı doğru
+    diziliyor: kadran genelde karenin ortasında durur ve sayının kaynağını
+    gözle denetlemek için ibrenin görünür kalması gerekir.
+    """
+    satirlar: list[tuple[str, tuple[int, int, int], bool]] = []
+    okuma = sonuc.reading
 
-    if sonuc is None:
-        yaz("gosterge bulunamadi", RENK_UYARI)
-        return
-
-    x1, y1, x2, y2 = (int(v) for v in sonuc["kutu"])
-    okuma = sonuc.get("okuma")
-    kutu_rengi = RENK_OK if okuma and okuma.status == DURUM_OK else RENK_UYARI
-    cv2.rectangle(kare, (x1, y1), (x2, y2), kutu_rengi, 2)
+    if sonuc.box_xyxy is not None:
+        x1, y1, x2, y2 = (int(v) for v in sonuc.box_xyxy)
+        kutu_rengi = RENK_OK if okuma and okuma.status == DURUM_OK else RENK_UYARI
+        cv2.rectangle(kare, (x1, y1), (x2, y2), kutu_rengi, 2)
+    else:
+        kutu_rengi = RENK_UYARI
 
     if okuma is None:
-        yaz(f"okunamadi: {sonuc['sebep']}", RENK_UYARI)
-        return
-
-    # Ölçülen ibreyi çiz — sayının nereden geldiği gözle denetlenebilsin.
-    cv2.line(kare, sonuc["merkez"], sonuc["aci"].tip_px, RENK_UYARI, 2, cv2.LINE_AA)
-    cv2.circle(kare, sonuc["merkez"], 4, RENK_UYARI, -1, cv2.LINE_AA)
-
-    if okuma.value is None:
-        yaz(f"{gauge.id}: DEGER YOK", RENK_UYARI, buyuk=True)
-        yaz(f"status: {okuma.status}   conf: {okuma.conf:.2f}", RENK_UYARI)
+        satirlar.append((f"okunamadi: {sonuc.reason}", RENK_UYARI, True))
     else:
-        yaz(f"{gauge.id}: {okuma.value:g} {gauge.unit}", kutu_rengi, buyuk=True)
-        yaz(f"status: {okuma.status}   conf: {okuma.conf:.2f}"
-            f"   ham aci: {okuma.raw_angle:+.1f} deg", RENK_BILGI)
+        # Ölçülen ibreyi çiz — sayının nereden geldiği gözle denetlenebilsin.
+        cv2.line(kare, sonuc.center_px, sonuc.needle.tip_px, RENK_UYARI, 2, cv2.LINE_AA)
+        cv2.circle(kare, sonuc.center_px, 4, RENK_UYARI, -1, cv2.LINE_AA)
 
-    yaz(f"tespit {sonuc['tespit_guveni']:.2f} · aci {sonuc['aci'].confidence:.2f}"
-        f" · kadran capi {2*sonuc['yaricap']:.0f} px", RENK_BILGI)
+        if okuma.value is None:
+            satirlar.append((f"{gauge.id}: DEGER YOK", RENK_UYARI, True))
+            satirlar.append((f"status: {okuma.status}  conf: {okuma.conf:.2f}", RENK_UYARI, False))
+        else:
+            satirlar.append((f"{gauge.id}: {okuma.value:g} {gauge.unit}", kutu_rengi, True))
+            satirlar.append((f"status: {okuma.status}  conf: {okuma.conf:.2f}"
+                             f"  ham aci: {okuma.raw_angle:+.1f} deg", RENK_BILGI, False))
+        satirlar.append((f"tespit {sonuc.detect_conf:.2f} · aci {sonuc.needle.confidence:.2f}"
+                         f" · kadran capi {2*sonuc.radius_px:.0f} px", RENK_BILGI, False))
+
     # Sınırlar ekranda: demoyu izleyen neyin varsayım olduğunu bilsin.
-    yaz("gosterge kimligi ELLE verildi · yatiklik duzeltmesi YOK", RENK_BILGI)
+    satirlar.append(("gosterge kimligi ELLE verildi · yatiklik duzeltmesi YOK",
+                     RENK_BILGI, False))
+
+    y = 30
+    for metin, renk, buyuk in satirlar:
+        cv2.putText(kare, metin, (12, y), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.9 if buyuk else 0.55, renk, 2 if buyuk else 1, cv2.LINE_AA)
+        y += 34 if buyuk else 24
 
 
 def dosyadan(yol: Path, model, gauge, conf_esik: float, kaydet: bool) -> int:
@@ -136,15 +93,15 @@ def dosyadan(yol: Path, model, gauge, conf_esik: float, kaydet: bool) -> int:
         print(f"görüntü okunamadı: {yol}")
         return 1
 
-    sonuc = kareyi_oku(kare, model, gauge, conf_esik=conf_esik)
+    sonuc = read_frame(kare, model, gauge, detect_conf=conf_esik)
     kareyi_ciz(kare, sonuc, gauge)
 
-    okuma = sonuc.get("okuma") if sonuc else None
-    if okuma and okuma.value is not None:
-        print(f"{yol.name}: {okuma.value:g} {gauge.unit}  "
-              f"[{okuma.status}] conf={okuma.conf:.2f} ham_aci={okuma.raw_angle:+.1f}")
+    if sonuc.ok:
+        o = sonuc.reading
+        print(f"{yol.name}: {o.value:g} {gauge.unit}  "
+              f"[{o.status}] conf={o.conf:.2f} ham_aci={o.raw_angle:+.1f}")
     else:
-        print(f"{yol.name}: okuma üretilemedi")
+        print(f"{yol.name}: okuma üretilemedi — {sonuc.reason or 'düşük güven'}")
 
     if kaydet:
         cikti = Path(CIKTI_DIZINI) / f"canli_{yol.stem}.png"
@@ -178,7 +135,7 @@ def kameradan(kaynak: int, model, gauge, conf_esik: float, kaydet: bool) -> int:
                 break
 
             t0 = time.perf_counter()
-            sonuc = kareyi_oku(kare, model, gauge, conf_esik=conf_esik)
+            sonuc = read_frame(kare, model, gauge, detect_conf=conf_esik)
             gecen = (time.perf_counter() - t0) * 1000
             kareyi_ciz(kare, sonuc, gauge)
             cv2.putText(kare, f"{1000/max(gecen,1e-6):.1f} FPS ({gecen:.0f} ms)",
