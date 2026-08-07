@@ -52,7 +52,10 @@ class GaugeReading:
 
     gauge_id: str
     type: str
-    value: float | None
+    # Analog/dijital göstergede sayı, lamba/vanada DURUM ADI ("green", "open").
+    # Tüketen taraf `type` alanına bakarak ayırır — şema tek mesaj gövdesi
+    # kullanıyor, gösterge tipi başına ayrı konu açılmıyor.
+    value: float | str | None
     unit: str | None
     conf: float
     status: str
