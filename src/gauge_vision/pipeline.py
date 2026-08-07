@@ -22,6 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from gauge_vision.config import Gauge
+from gauge_vision.detect.perspective import Duzlestirme, duzlestir
 from gauge_vision.detect.refine import refine_dial
 from gauge_vision.read.calibrate import GaugeReading, read_value
 from gauge_vision.read.needle import NeedleReading, read_needle_angle
@@ -56,6 +57,9 @@ class FrameResult:
     # ya da başarısız olmuştur; `roll_deg` o zaman dışarıdan verilen değerdir.
     roll_deg: float = 0.0
     roll: RollEstimate | None = None
+    # Perspektif düzeltmesi uygulanabildiyse dolu. `axis_ratio` 1'e yakınsa
+    # kadrana zaten dik bakılıyor demektir.
+    perspective: Duzlestirme | None = None
 
     @property
     def ok(self) -> bool:
@@ -84,6 +88,8 @@ def read_frame(
     method: str = "polar",
     roll_deg: float | None = None,
     refine: bool = True,
+    perspektif: bool = False,
+    esik: float | None = None,
 ) -> FrameResult:
     """Karede göstergeyi bulur, ibresini ölçer, değere çevirir.
 
@@ -112,6 +118,16 @@ def read_frame(
     if yaricap < MIN_YARICAP_PX:
         return _bos(f"kadran çok küçük ({yaricap:.0f} px)", kutu, tespit_guveni)
 
+    # Perspektif düzeltmesi EN ÖNDE: sonraki her adım (merkez rafinesi, yatıklık,
+    # ibre) düzleştirilmiş karede çalışmalı. Sonraya bırakılırsa her biri eğik
+    # geometride ölçüm yapar ve düzeltmenin anlamı kalmaz.
+    duzlestirme = None
+    if perspektif:
+        duzlestirme = duzlestir(image, merkez, yaricap)
+        if duzlestirme is not None:
+            image = duzlestirme.image
+            merkez, yaricap = duzlestirme.center_px, duzlestirme.radius_px * KUTU_YARICAP_ORANI
+
     # Merkez rafinesi ibre ölçümünden ÖNCE: kutupsal tarama merkeze duyarlıdır,
     # düzeltmeyi sonradan uygulamak açıyı geriye dönük kurtarmaz.
     rafine_edildi = False
@@ -136,9 +152,10 @@ def read_frame(
     # Güvenler çarpılıyor: zincirin güveni en zayıf halkasından yüksek olamaz.
     # İP15'in `unreadable` eşiği bu birleşik sayıya uygulanacaktır.
     okuma = read_value(gauge, aci.angle_img_deg, roll_deg=roll_deg,
-                       confidence=aci.confidence * tespit_guveni)
+                       confidence=aci.confidence * tespit_guveni, esik=esik)
 
     return FrameResult(box_xyxy=kutu, detect_conf=tespit_guveni, center_px=merkez,
                        radius_px=yaricap, needle=aci, reading=okuma,
                        center_refined=rafine_edildi,
-                       roll_deg=roll_deg, roll=yatiklik)
+                       roll_deg=roll_deg, roll=yatiklik,
+                       perspective=duzlestirme)

@@ -78,19 +78,28 @@ def read_value(
     *,
     roll_deg: float = 0.0,
     confidence: float = 1.0,
+    esik: float | None = None,
 ) -> GaugeReading:
     """Ölçülen görüntü açısını değere çevirir ve durumunu belirler.
 
     Hiçbir koşulda hata yükseltmez: okuma zinciri saha döngüsünde çalışacaktır,
     tek bir okunamayan kare turu düşürmemelidir. Sorunlar `status` ile bildirilir.
+
+    `esik` envanterdeki `conf_threshold`'u geçersiz kılar. **Yalnızca ölçüm
+    içindir.** İP15'in eşik kalibrasyonu, eşiğin ALTINDA kalan okumaların ne
+    kadar yanlış olduğunu görmek zorundadır; eşik zaten uygulanmış veriyle
+    kalibrasyon yapmak daireseldir — eşiğin altı hiç görünmez, tarama tablosu
+    düz çıkar ve "her eşik aynı" gibi yanıltıcı bir sonuç verir (07.08'de tam
+    bunu ürettik). Sahada bu parametre kullanılmaz; varsayılan envanterdir.
     """
     if gauge.type != "analog":
         raise ValueError(f"{gauge.id}: read_value sadece analog göstergede çalışır "
                          f"(tip: {gauge.type})")
 
     bos = _bos_okuma(gauge, angle_img_deg, confidence)
+    guven_esigi = gauge.conf_threshold if esik is None else esik
 
-    if confidence < gauge.conf_threshold:
+    if confidence < guven_esigi:
         return bos(DURUM_OKUNAMADI)
 
     kadran_acisi = angle_img_deg - roll_deg
