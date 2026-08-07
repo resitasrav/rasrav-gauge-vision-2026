@@ -1,118 +1,144 @@
 # Devam Notu — Oturum Kapanışı
 
-**Yazıldığı an:** 07.08.2026 · Gün 10/30 · H2'nin son günü
-**Amaç:** Yeni oturum bu dosyayı okuyunca kaldığı yerden devam edebilsin. Durum özeti
-CLAUDE.md'de; **burada yalnızca "sırada ne var ve neye dikkat et" var.**
+**Yazıldığı an:** 14.08.2026 · Gün 15/30 · H3 kapandı
+**Amaç:** Yeni oturum bu dosyayı okuyunca kaldığı yerden devam edebilsin.
+Durum özeti CLAUDE.md'de; **burada yalnızca "sırada ne var ve neye dikkat et" var.**
+
+> 👉 **Reşit'in bakması gerekenler ayrı dosyada:** [SORULAR.md](SORULAR.md)
+> 1 engelleyici karar (İP8 veri kaynağı), 4 varsayım onayı, 6 bilgi notu.
 
 ---
 
 ## 1. Nerede kaldık
 
-**İP1-İP7 bitti, zincir uçtan uca çalışıyor.** Sentetik veride (v1, eğitimde görülmemiş
-100 görüntü) **%0,19 tam skala** — hedef %5, okunamayan kare 0.
+**On iş paketi bitti: İP1-İP7, İP10, İP11, İP12, İP14, İP15.**
+Kalan: İP8 (engelli), İP9, İP13, İP16.
 
 | İP | Ölçüm | Dosya |
 |---|---|---|
-| İP6 | ibre açısı **0,123°** (kutupsal tarama) | `outputs/metrics/ip6_aci_hatasi.json` |
-| İP7 | okuma hatası **%0,129 tam skala** | `outputs/metrics/ip7_okuma_hatasi.json` |
-| İP5 | tespit **mAP50 0,967**, kaçırılan 1/173 | `outputs/metrics/ip5_tespit.json` |
-| zincir | **%0,19** · yatıklık kestirimi 0,035° | `outputs/metrics/ip8_zincir_hatasi.json` |
+| Zincir (analog) | **%0,19** tam skala | `outputs/metrics/ip8_zincir_hatasi.json` |
+| İP14 zor koşullar | 5 eksen × 5 seviye | `outputs/metrics/ip14_zor_kosullar.json` |
+| İP15 güven eşiği | **0,70** · kapsama %88,1 | `outputs/metrics/ip15_guven_esigi.json` |
+| İP11 dijital panel | **%93,3** dizge | `outputs/metrics/ip11_dijital.json` |
+| İP12 lamba/vana | **%100 / %100** | `outputs/metrics/ip12_lamba_vana.json` |
+| İP10 MQTT | **12/12** şema uyumlu | `outputs/mqtt/*.jsonl` |
 
-149/149 test geçiyor. İki repo da temiz. Arka planda koşan bir şey yok.
+**221/221 test geçiyor. İki repo da temiz. Arka planda koşan bir şey yok.**
 
-**Bütçe artık okuma yönteminde tıkanıyor** — zincir kendi tabanının 1,5 katında:
+---
 
-| Kalem | Puan | Payı |
+## 2. Sıradaki iş — İP13: canlı masa üstü test (H4)
+
+**Neden bu:** dört gösterge tipinin dördü de ayrı ayrı çalışıyor ama **hiçbiri
+zincire bağlı değil.** `pipeline.read_frame` yalnızca analog okuyor; dijital,
+lamba ve vana kendi fonksiyonlarından çağrılıyor. İP13 bunları tek bir akışta
+birleştirmeli.
+
+**Ne yapacak:**
+
+```
+kare → YOLO tespiti → gauge_id (waypoint'ten, şimdilik elle)
+     → tipe göre dallan:
+         analog  → refine → perspektif → roll → needle → read_value
+         digital → read_digital
+         lamp    → read_state
+         valve   → read_state
+     → publish/reading.ReadingPublisher
+```
+
+**Hazır parçalar — yenisini yazma:**
+
+- `gauge_vision.pipeline.read_frame` — analog dalı (mevcut)
+- `gauge_vision.read.digital.read_digital(image, gauge)`
+- `gauge_vision.read.state.read_state(image, gauge)`
+- `gauge_vision.publish.reading.ReadingPublisher` — broker yoksa dosyaya yazar
+- `scripts/canli_oku.py` — kamera döngüsü ve çizim zaten var
+
+**İP11 için bir iş burada kapanıyor:** dijital hane ızgarası şu an görüntüden
+kuruluyor ve eksi işaretinde tökezliyor. Zincire bağlanınca **İP5'in panel
+kutusundan** kurulabilir — hane sayısı envanterde yazılı, kutu tespitten
+geliyor. `read_digital`'a bir `roi` parametresi yeterli.
+
+**Tasarım kararı (verildi):** gösterge kimliği hâlâ elle/waypoint'ten gelecek
+(U11 açık). Yanlış kimliğe karşı tek otomatik işaret, yatıklık kestiriminin
+susmasıdır (`roll.MIN_UYUM`, ölçülen ayrım 0,22 vs 0,63).
+
+---
+
+## 3. Sonraki üç iş
+
+1. **İP8 — gerçek görüntü.** 🔴 Ground truth kaynağı kararına bağlı, bkz.
+   SORULAR.md S1. Önerilen A seçeneği yarım gün sürer.
+2. **İP9 — CNN alternatifi.** *(kırpılabilir)* GPU hazır, sentetik veri hazır,
+   ground truth bedava. İbre açısını regresyonla kestirip kutupsal taramayla
+   kıyaslamak. Kıyas tablosu K3'ün (03.08) formatını izlemeli.
+3. **KT2 — ekip şema onayı.** Kod tarafı hazır (`schema: 1`, doğrulayıcı, 20
+   test). U1-U3 kararı gelince değişiklik gerekmeyecek.
+
+---
+
+## 4. Gerçek görüntüye geçilince YENİDEN ÖLÇÜLECEK eşikler
+
+Hepsi sentetik dağılımlara göre kalibre edildi ve kod içinde ⚠ ile işaretli:
+
+| Sabit | Dosya | Ne için |
 |---|---|---|
-| Okuma yöntemi (İP6+İP7) | 0,129 | %68 |
-| Tespit merkezi (rafineden sonra) | 0,051 | %27 |
-| Yatıklık kestirim artığı | 0,010 | %5 |
-
-Sentetik veride sıkılacak yer kalmadı; buradan sonra kazanç **gerçek görüntüde**
-aranmalıdır. Bu sayılar zorluğu ölçmez, yalnızca yöntemin kendi tabanını gösterir.
-
----
-
-## 2. Sıradaki iş — İP8: gerçek görüntüde uçtan uca test
-
-**Neden bu:** Zincirin sentetikteki hatası artık ölçüm gürültüsü seviyesinde. Gerçek
-göstergede cam yansıması, açılı bakış, sanayi aydınlatması ve tozlanma var; bunların
-hiçbiri sentetikte yok. Sayının gerçek karşılığı bilinmiyor.
-
-**🔴 Engel — çözülmeden İP8 başlayamaz: ground truth kaynağı yok.** A1/A2'nin Drive
-klasörü 404 verdi, A5 etiketsiz. Gerçek görüntüde ibre değeri etiketli açık kaynak
-kalmadı. Üç seçenek `docs/veri_setleri_degerlendirme.md` §2.3'te.
-
-**Önerilen (06.08'de doğdu, henüz denenmedi): ekrandan çekim.** Sentetik kadranı ekranda
-gösterip fotoğraflamak = **gerçek optik yol + tam bilinen ground truth**. Görüntü gerçek
-mercekten, ışıktan, sensörden geçer; değeri birebir bilinir çünkü kareyi biz ürettik.
-Gerçek manometrenin yerini tutmaz, sentetik ile gerçek arasında bir basamaktır.
-Canlı demo bunun çalıştığını zaten gösterdi (telefon ekranı → %1,25 hata).
-
-**Ölçüm hattı hazır:** `scripts/olc_zincir.py --veri <yeni_kume>` aynı ablasyon
-ızgarasını yeni veri üzerinde koşturur, elle bir şey yapılmaz.
-
----
-
-## 3. Sonraki üç iş (öncelik sırasıyla)
-
-1. **İP8** — yukarıdaki engel çözülünce. Bu sırada üç eşiğin gerçek görüntüde yeniden
-   ölçülmesi gerekir; hepsi sentetikte kalibre edildi ve kod içinde ⚠ ile işaretli:
-   `refine.MAX_ARTIK_ORANI`, `refine.MAX_YAYILMA_ORANI`, `roll.MIN_UYUM`.
-2. **KT2 — `inspect/reading` şemasını dondur.** 31 Tem'de gecikti (defterde U7 🔴).
-   Alanlar belli: `gauge_id, type, value, unit, conf, status, raw_angle, img_ref`.
-   `GaugeReading.as_message()` bunu zaten üretiyor. Daha fazla bekletilmemeli.
-3. **İP10 — MQTT yayını.** U5 çözülmezse replay ile gösterilemez.
-
----
-
-## 4. Karar bekleyenler (Reşit'ten / ekipten)
-
-- **🔴 İP8 ground truth kaynağı** — bkz. §2. H3'e (10 Ağu) girmeden karara bağlanmalı.
-- **🔴 U5** — Bedirhan'ın `recorder.py`'ı `inspect/reading`'i kaydetmiyor; İP8 ve İP10
-  buna bağlı. 05.08'de hâlâ değişmemişti.
-- **U11 — waypoint kimlik sözlüğü.** Gösterge kimliği hâlâ elle geliyor. Kısmi otomatik
-  koruma çıktı: yanlış kimlik verilirse yatıklık kestirimi susuyor (`roll.MIN_UYUM`,
-  ölçülen ayrım 0,22 vs 0,63). Sözlüğün yerini tutmaz ama sessiz hatayı görünür kılar.
-- **Danışman sorusu:** "%5 ortalama hata" tam skalanın mı okunan değerin mi yüzdesi?
-  Tam skala seçildi, iki tanım da ölçülüp JSON'a yazıldı.
+| `MAX_ARTIK_ORANI`, `MAX_YAYILMA_ORANI` | `detect/refine.py` | merkez rafinesi kanıt kalitesi |
+| `MIN_UYUM` | `read/roll.py` | yatıklık deseni uyumu |
+| `MIN_EKSEN_ORANI`, `MAX_ARTIK_ORANI` | `detect/perspective.py` | elips kabul kapıları |
+| `LAMBA_PARLAKLIK_ORANI` | `read/state.py` | lamba yanık/sönük ayrımı |
+| `conf_threshold: 0.70` | `configs/gauges.yaml` | **İP15 gerçek veriyle yeniden koşmalı** |
 
 ---
 
 ## 5. Tuzaklar — zaman kaybettirenler
 
-- **"Kapı" yazmak kapı kurmak değildir.** 07.08'de aynı hata iki modülde arka arkaya
-  yapıldı: `refine.py` ve `roll.py`'ın ilk sürümlerindeki güven kapıları **rastgele
-  gürültüyü kabul ediyordu** (50/50 ve 8/10). İkisinde de sebep aynıydı: kapılar
-  "cevap makul mü" diye soruyordu, "kanıt var mı" diye değil. Yeni bir kapı yazınca
-  **onu sahte girdiyle sınamadan bitmiş sayma** — her ikisi de ancak gürültü testiyle
-  yakalandı. Eşiği tahminle değil, iki kümenin dağılımını ölçüp aralarına koy.
-- **torch tekerleği.** Bu makinede RTX 4050 var ve `cu126` sürümü kurulu. `pip install
-  torch` PyPI'dan **CPU** sürümünü getirir ve bu **sessizce çalışır, sadece kartı
-  kullanmaz.** Bozulursa `requirements.txt` başındaki komut, sonra
+- **"Kapı" yazmak kapı kurmak değildir.** `refine.py` ve `roll.py`'ın ilk güven
+  kapıları rastgele gürültüyü kabul ediyordu (50/50 ve 8/10). Kapılar "cevap
+  makul mü" diye soruyordu, "kanıt var mı" diye değil. **Yeni kapı yazınca sahte
+  girdiyle sınamadan bitmiş sayma.**
+- **Mutlak eşik = gizli hata.** Lamba okuması `V > 90` ile karar veriyordu;
+  ×0,15 ışıkta yanan lamba 35'e düşüp **60 kareyi sessizce yanlış sınıflandırdı**.
+  Doğru ölçüt çevreye göre kontrasttı. Aynı sınıf hata `digital.py`'da da çıktı.
+- **Envanter ile kod sessizce ayrışabilir.** Vana toleransında envanter ±20°
+  diyordu, kod ±6° yapıyordu. İkisi de kendi içinde tutarlı olduğu için hiçbir
+  birim testi yakalamadı. **Her sayısal beyan için o beyanı sınayan test yaz.**
+- **Düz tarama tablosu sonuç değil uyarıdır.** İP15'in ilk kalibrasyonu daireseldi
+  (eşik zaten uygulanmış veriyle kalibrasyon). Bir tarama hiçbir şey
+  değiştirmiyorsa önce ölçüm düzeneğine bak.
+- **`_haneleri_bul` gibi filtrelerde ölçüt yanlış boyut olabilir.** Ondalık
+  noktayı elemek için YÜKSEKLİK filtresi kullanmak yatay segmentleri de siler
+  (hane kutusu 71 px yerine 19 px çıktı). İki boyutun büyüğüne bak.
+- **torch tekerleği.** RTX 4050 + `cu126` kurulu. `pip install torch` PyPI'dan
+  **CPU** sürümünü getirir ve **sessizce çalışır, sadece kartı kullanmaz.**
   `torch.cuda.is_available()` ile doğrula. Fark: eğitim 45 dk → 5 dk.
-- **Ultralytics çıktı yolu.** `project="models/ip5"` verilse bile ayarlarındaki `runs_dir`
-  öne ekleniyor → gerçek yol `runs/detect/models/ip5/...`.
-- **Veri sızıntısı.** Zincir ölçümü `v1` (tohum 1) üzerinde koşar; `v0`'ın 53 karesi
-  karışık eğitimin içindeydi. Yeni ölçüm kümesi üretirken `--ozet` ver, yoksa İP3'ün
-  kayıtlı özeti ezilir.
-- **Uyuşmazlık defteri git'e girmez.** `STAJ\ortak uyusmazliklar\uyusmazliklar.md`
-  yereldir, iki reponun da dışındadır. 11 madde var (U1-U11).
-- **PowerShell + git commit.** Mesajda çift tırnak varsa PowerShell argümanı bölüyor.
+- **Ultralytics çıktı yolu.** `project="models/ip5"` verilse bile `runs_dir` öne
+  ekleniyor → gerçek yol `runs/detect/models/ip5/...`.
+- **Veri sızıntısı.** Zincir ölçümü `v1` (tohum 1) üzerinde koşar; `v0`'ın 53
+  karesi karışık eğitimin içindeydi. Yeni ölçüm kümesi üretirken `--ozet` ver.
+- **PowerShell + dosya kodlaması.** `Set-Content` ile Türkçe içeren markdown
+  dosyasını yeniden yazma — mojibake üretiyor. Edit aracını kullan.
+- **PowerShell + git commit.** Mesajda çift tırnak varsa argüman bölünüyor.
   Uzun mesajı dosyaya yazıp `git commit -F dosya` ile ver.
+- **Uyuşmazlık defteri git'e girmez.** `STAJ\ortak uyusmazliklar\uyusmazliklar.md`
+  yereldir, iki reponun da dışındadır.
 - **Raporlar staj iş gününe göre tarihlenir**, dosyanın yazıldığı güne göre değil.
 
 ---
 
 ## 6. Bu oturumda yapılanlar (özet)
 
-- **`detect/refine.py`** — kadran merkezi kutudan değil çemberden. Merkez sapması
-  %1,31 → **%0,06**, maliyet 1,5 ms. Gradyan doğrularının kapalı form kesişimi;
-  akümülatör yok. Fikir kaynağı Reşit'in `Cascaded-Soft-Hough` çalışması.
-- **`read/roll.py`** — kamera yatıklığı kadranın çizgilerinden. Beklenen desenle
-  dairesel korelasyon; hata **0,035°**, maliyet 0,8 ms.
-- **`Gauge.tick_values()`** `config.py`'a taşındı — çizgi düzeni artık tek yerde,
-  üreteç ile okuyucu aynı kaynaktan besleniyor.
-- `olc_zincir.py` 2×3 ablasyon ızgarasına çevrildi; bütçe tablosu koşudan doğuyor.
-- Zincir **%1,92 → %0,19**, okunamayan 8 → 0.
-- Testler 101 → 149.
+- **`synth/degrade.py`** — beş eksenli zor koşul üreteci; ground truth
+  bozulmayla birlikte taşınıyor
+- **`detect/perspective.py`** — elips→daire düzleştirme (K2); 40°'de p95
+  13,44 → 4,97
+- **İP14** — koşul bazlı tablo; **eğiklik tek başına baskın**, düşük ışık ve
+  JPEG neredeyse etkisiz, parlama okumayı değil tespiti öldürüyor
+- **İP15** — eşik 1560 karede kalibre edildi, envanterdeki 0,70 doğrulandı
+- **`read/digital.py` + `synth/digital.py`** — 7-segment panel, %93,3 dizge
+- **`read/state.py` + `synth/state.py`** — lamba/vana, %100/%100, sessiz yanlış
+  sınıflandırma yok
+- **`publish/reading.py`** — `inspect/reading` yayını + katı şema doğrulaması,
+  broker bağımsız
+- Testler 149 → **221**
+- Günlük raporlar 10-14.08 + H3 haftalığı yazıldı
