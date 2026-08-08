@@ -5,13 +5,25 @@
 > Cevap gelince ilgili yer güncellenecek.
 >
 > **Oturum:** 07.08.2026 gecesi → 08.08 sabahı ·
-> **Yapılan:** İP14, İP15, İP11, İP12, İP10 + perspektif düzeltmesi
+> **Yapılan:** İP14, İP15, İP11, İP12, İP10, İP13 + perspektif düzeltmesi
+
+---
+
+## ✅ 08.08 sabahı cevaplananlar
+
+| | Soru | Karar |
+|---|---|---|
+| **S1** | İP8 ground truth kaynağı | **A — ekrandan çekim.** Sentetik kadran ekranda gösterilip fotoğraflanacak. Yarım günlük iş, elle etiketleme yok. |
+| **S5** | Güven eşiği / kapsama dengesi | **0,70 kalıyor.** Kapsama %88,1, bin turda ~2 hatalı sayı kabul edildi. |
+| **S4** | Eşik gösterge başına farklılaşsın mı | **Hayır** — S5'in cevabı tek genel eşiği onayladı. `conf_threshold` ezme yolu envanterde açık kalıyor ama kullanılmıyor. |
+
+Kalan açık maddeler: **S2** (vananın açık konumu) ve **S3** (dijital panelde negatif değer).
 
 ---
 
 ## 🔴 Senin kararın olmadan ilerleyemeyecek olan — TEK MADDE
 
-### S1. İP8'in gerçek görüntü ground truth kaynağı
+### S1. İP8'in gerçek görüntü ground truth kaynağı — ✅ **A seçildi (08.08)**
 
 **Neden bekliyor:** İP8 "gerçek gösterge fotoğraflarında uçtan uca hata tablosu"
 istiyor. A1/A2 setleri erişilemez (05.08, HTTP 404), A5 etiketsiz. İbre değeri
@@ -72,7 +84,7 @@ kutusundan kurmak — İP13'te zincire bağlanırken yapılabilir.
 **Senden gereken:** DP-401 gerçekte negatif değer gösteriyor mu? Göstermiyorsa
 bu sorun hiç yok demektir ve `allow_minus: false` yapılabilir.
 
-### S4. Güven eşiği gösterge başına farklılaşsın mı?
+### S4. Güven eşiği gösterge başına farklılaşsın mı? — ✅ **Hayır (08.08)**
 
 **Ölçülen:** eşik 0,70 seçildi; kapsama %88,1, sessiz hata %0,22. Ama eksen
 kırılımında **eğiklik ekseninde kapsama %61,4** — yani eğik bakılan bir
@@ -85,7 +97,7 @@ kullanılmıyor.
 **Senden gereken:** kritik göstergelerde (PT-101 alarmlı) eşik daha mı yüksek
 olmalı? Yüksek eşik = daha az yanlış ama daha çok "okunamadı".
 
-### S5. Kapsama/risk dengesi doğru yerde mi?
+### S5. Kapsama/risk dengesi doğru yerde mi? — ✅ **0,70 onaylandı (08.08)**
 
 Ölçülen ödünleşme:
 
