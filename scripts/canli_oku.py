@@ -31,7 +31,7 @@ from pathlib import Path
 import cv2
 
 from gauge_vision.config import load_gauges
-from gauge_vision.pipeline import read_frame
+from gauge_vision.pipeline import read_gauge
 from gauge_vision.read.calibrate import DURUM_OK
 
 VARSAYILAN_AGIRLIK = "runs/detect/models/ip5/karisik/weights/best.pt"
@@ -40,6 +40,31 @@ CIKTI_DIZINI = "outputs/figures"
 RENK_OK = (60, 200, 60)
 RENK_UYARI = (40, 40, 220)
 RENK_BILGI = (40, 40, 40)
+
+
+class _TespitYok:
+    """Tespit yerine tüm kareyi kutu olarak veren yer tutucu (`--tespitsiz`).
+
+    Kırpılmış bir görüntüyü doğrudan okumak için. Modelin arayüzünü taklit
+    ediyor ki zincir kodu iki durumu ayırt etmek zorunda kalmasın.
+    """
+
+    class _Kutular:
+        def __init__(self, h, w):
+            import numpy as _np
+            self.xyxy = _np.array([[0.0, 0.0, float(w), float(h)]])
+            self.conf = _np.array([1.0])
+
+        def __len__(self):
+            return 1
+
+    class _Sonuc:
+        def __init__(self, h, w):
+            self.boxes = _TespitYok._Kutular(h, w)
+
+    def predict(self, image, **_):
+        h, w = image.shape[:2]
+        return [_TespitYok._Sonuc(h, w)]
 
 
 def kareyi_ciz(kare, sonuc, gauge) -> None:
@@ -62,26 +87,38 @@ def kareyi_ciz(kare, sonuc, gauge) -> None:
     if okuma is None:
         satirlar.append((f"okunamadi: {sonuc.reason}", RENK_UYARI, True))
     else:
-        # Ölçülen ibreyi çiz — sayının nereden geldiği gözle denetlenebilsin.
-        cv2.line(kare, sonuc.center_px, sonuc.needle.tip_px, RENK_UYARI, 2, cv2.LINE_AA)
-        cv2.circle(kare, sonuc.center_px, 4, RENK_UYARI, -1, cv2.LINE_AA)
+        # Ölçülen ibre yalnızca analog dalında var; dijital panel, lamba ve
+        # vanada kadran geometrisi anlamsızdır ve `needle` None gelir.
+        if sonuc.needle is not None and sonuc.center_px is not None:
+            # Sayının nereden geldiği gözle denetlenebilsin.
+            cv2.line(kare, sonuc.center_px, sonuc.needle.tip_px, RENK_UYARI, 2, cv2.LINE_AA)
+            cv2.circle(kare, sonuc.center_px, 4, RENK_UYARI, -1, cv2.LINE_AA)
 
         if okuma.value is None:
             satirlar.append((f"{gauge.id}: DEGER YOK", RENK_UYARI, True))
-            satirlar.append((f"status: {okuma.status}  conf: {okuma.conf:.2f}", RENK_UYARI, False))
+            satirlar.append((f"status: {okuma.status}  conf: {okuma.conf:.2f}",
+                             RENK_UYARI, False))
         else:
-            satirlar.append((f"{gauge.id}: {okuma.value:g} {gauge.unit}", kutu_rengi, True))
-            satirlar.append((f"status: {okuma.status}  conf: {okuma.conf:.2f}"
-                             f"  ham aci: {okuma.raw_angle:+.1f} deg", RENK_BILGI, False))
-        satirlar.append((f"tespit {sonuc.detect_conf:.2f} · aci {sonuc.needle.confidence:.2f}"
-                         f" · kadran capi {2*sonuc.radius_px:.0f} px", RENK_BILGI, False))
+            # Lamba/vanada değer bir DURUM ADIDIR, sayı değil — `:g` biçimi
+            # dizgede patlar.
+            deger = (f"{okuma.value:g}" if isinstance(okuma.value, (int, float))
+                     else str(okuma.value))
+            birim = f" {gauge.unit}" if gauge.unit else ""
+            satirlar.append((f"{gauge.id}: {deger}{birim}", kutu_rengi, True))
+            satirlar.append((f"status: {okuma.status}  conf: {okuma.conf:.2f}",
+                             RENK_BILGI, False))
 
-        # Merkezin ve yatıklığın NEREDEN geldiği ekranda: ikisi de zincirin
-        # doğruluğunu belirliyor ve ikisi de sessizce başarısız olabilir.
-        merkez_kaynak = "cemberden" if sonuc.center_refined else "KUTUDAN (rafine yok)"
-        yatiklik = (f"{sonuc.roll_deg:+.1f} deg (uyum {sonuc.roll.match:.2f})"
-                    if sonuc.roll else "KESTIRILEMEDI, 0 kabul edildi")
-        satirlar.append((f"merkez {merkez_kaynak} · yatiklik {yatiklik}", RENK_BILGI, False))
+        satirlar.append((f"tip {gauge.type} · tespit {sonuc.detect_conf:.2f}",
+                         RENK_BILGI, False))
+
+        if sonuc.needle is not None:
+            # Merkezin ve yatıklığın NEREDEN geldiği ekranda: ikisi de zincirin
+            # doğruluğunu belirliyor ve ikisi de sessizce başarısız olabilir.
+            merkez_kaynak = "cemberden" if sonuc.center_refined else "KUTUDAN (rafine yok)"
+            yatiklik = (f"{sonuc.roll_deg:+.1f} deg (uyum {sonuc.roll.match:.2f})"
+                        if sonuc.roll else "KESTIRILEMEDI, 0 kabul edildi")
+            satirlar.append((f"merkez {merkez_kaynak} · yatiklik {yatiklik}",
+                             RENK_BILGI, False))
 
     # Kalan sınır ekranda: demoyu izleyen neyin varsayım olduğunu bilsin.
     satirlar.append(("gosterge kimligi ELLE verildi", RENK_BILGI, False))
@@ -99,13 +136,14 @@ def dosyadan(yol: Path, model, gauge, conf_esik: float, kaydet: bool) -> int:
         print(f"görüntü okunamadı: {yol}")
         return 1
 
-    sonuc = read_frame(kare, model, gauge, detect_conf=conf_esik)
+    sonuc = read_gauge(kare, model, gauge, detect_conf=conf_esik)
     kareyi_ciz(kare, sonuc, gauge)
 
     if sonuc.ok:
         o = sonuc.reading
-        print(f"{yol.name}: {o.value:g} {gauge.unit}  "
-              f"[{o.status}] conf={o.conf:.2f} ham_aci={o.raw_angle:+.1f}")
+        deger = f"{o.value:g}" if isinstance(o.value, (int, float)) else str(o.value)
+        print(f"{yol.name}: {deger} {gauge.unit or ''}  "
+              f"[{o.status}] conf={o.conf:.2f}")
     else:
         print(f"{yol.name}: okuma üretilemedi — {sonuc.reason or 'düşük güven'}")
 
@@ -141,7 +179,7 @@ def kameradan(kaynak: int, model, gauge, conf_esik: float, kaydet: bool) -> int:
                 break
 
             t0 = time.perf_counter()
-            sonuc = read_frame(kare, model, gauge, detect_conf=conf_esik)
+            sonuc = read_gauge(kare, model, gauge, detect_conf=conf_esik)
             gecen = (time.perf_counter() - t0) * 1000
             kareyi_ciz(kare, sonuc, gauge)
             cv2.putText(kare, f"{1000/max(gecen,1e-6):.1f} FPS ({gecen:.0f} ms)",
@@ -176,6 +214,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--conf", type=float, default=0.25, help="tespit güven eşiği")
     p.add_argument("--kaydet", action="store_true",
                    help="dosya modunda kaydet; kamera modunda 's' ile kare yakala")
+    p.add_argument("--tespitsiz", action="store_true",
+                   help="tespit adımını atla, tüm kareyi gösterge kabul et")
     args = p.parse_args(argv)
 
     gauges = load_gauges()
@@ -183,19 +223,43 @@ def main(argv: list[str] | None = None) -> int:
         print(f"envanterde yok: {args.gosterge} — mevcutlar: {list(gauges)}")
         return 1
     gauge = gauges[args.gosterge]
-    if gauge.type != "analog":
-        print(f"{gauge.id} analog değil ({gauge.type}) — bu script analog kadran okur")
+    # 14.08'den beri dört tip de destekleniyor: `read_gauge` envanterdeki tipe
+    # göre doğru okuyucuya dallanıyor (İP13).
+    if gauge.type not in ("analog", "digital", "lamp", "valve"):
+        print(f"{gauge.id}: desteklenmeyen tip ({gauge.type})")
         return 1
 
     agirlik = Path(args.agirlik)
-    if not agirlik.exists():
-        print(f"ağırlık yok: {agirlik}\nönce: python scripts/egit_ip5.py")
-        return 1
-
-    from ultralytics import YOLO
-    model = YOLO(str(agirlik))
-    print(f"gösterge: {gauge.id} ({gauge.name}) · kadran {gauge.scale.min:g}-"
-          f"{gauge.scale.max:g} {gauge.unit} · ağırlık: {agirlik}")
+    if args.tespitsiz:
+        # ⚠ Tespit ADIMI ATLANIYOR — tüm kare gösterge kabul ediliyor.
+        #
+        # İP5'in modeli yalnızca ANALOG KADRANDA eğitildi; dijital panel, ikaz
+        # lambası ve vanayı tanımıyor. Bu mod o boşluğu **görünür** kılar:
+        # okuma katmanı dört tipte de çalışıyor (İP13 ölçümü: 480 karede sıfır
+        # sessiz yanlış), eksik olan tespittir. Sessizce analog modeli çağırıp
+        # "bulunamadı" demek, sorunu okuma katmanına yamamak olurdu.
+        model = _TespitYok()
+        print("⚠ tespit atlandı — tüm kare gösterge kabul ediliyor")
+    else:
+        if not agirlik.exists():
+            print(f"ağırlık yok: {agirlik}\nönce: python scripts/egit_ip5.py")
+            return 1
+        from ultralytics import YOLO
+        model = YOLO(str(agirlik))
+        if gauge.type != "analog":
+            print(f"⚠ {gauge.id} analog değil; İP5 modeli bu tipi tanımıyor. "
+                  f"Kırpılmış görüntüde --tespitsiz ile deneyin.")
+    # Kadran aralığı yalnızca analogda var; dijitalde `range`, lamba/vanada
+    # `states` anlamlıdır.
+    if gauge.type == "analog":
+        kapsam = f"kadran {gauge.scale.min:g}-{gauge.scale.max:g} {gauge.unit}"
+    elif gauge.type == "digital":
+        a = gauge.raw.get("range") or {}
+        kapsam = f"{(gauge.digits or {}).get('count', '?')} hane · {a.get('min')}-{a.get('max')} {gauge.unit}"
+    else:
+        kapsam = "durumlar: " + ", ".join(gauge.state_names)
+    print(f"gösterge: {gauge.id} ({gauge.name}) [{gauge.type}] · {kapsam} · "
+          f"ağırlık: {agirlik}")
 
     if args.kaynak.isdigit():
         return kameradan(int(args.kaynak), model, gauge, args.conf, args.kaydet)

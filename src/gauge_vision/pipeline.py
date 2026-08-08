@@ -71,6 +71,82 @@ def _bos(sebep: str, kutu=None, guven: float = 0.0) -> FrameResult:
                        radius_px=0.0, needle=None, reading=None, reason=sebep)
 
 
+# Tespit kutusundan gösterge yüzünü kırparken bırakılan pay. Kutu kadranı sıkı
+# sarar; dijital panelde ve lambada kenar bilgisi (çerçeve, pano zemini) okuma
+# için GEREKLİDİR — `read_state` yanık/sönük ayrımını çevre parlaklığına göre
+# yapıyor, `read_digital` çerçeveyi eleyebilmek için onu görmek zorunda.
+KIRPIM_PAYI = 0.12
+
+
+def _kirp(image: np.ndarray, kutu, pay: float = KIRPIM_PAYI) -> np.ndarray:
+    """Kutuyu payla birlikte kırpar. Kare dışına taşarsa sınırlara kırpılır."""
+    h, w = image.shape[:2]
+    x1, y1, x2, y2 = kutu
+    dx, dy = (x2 - x1) * pay, (y2 - y1) * pay
+    return image[max(0, int(y1 - dy)):min(h, int(y2 + dy)),
+                 max(0, int(x1 - dx)):min(w, int(x2 + dx))]
+
+
+def read_gauge(
+    image: np.ndarray,
+    model,
+    gauge: Gauge,
+    *,
+    detect_conf: float = 0.25,
+    esik: float | None = None,
+    **analog_kw,
+) -> FrameResult:
+    """**Tipten bağımsız giriş noktası** — İP13'ün zincir birleştirmesi.
+
+    Gösterge tipine göre doğru okuyucuya dallanır:
+
+        analog   → read_frame (tespit → perspektif → merkez → yatıklık → açı → değer)
+        digital  → read_digital (7-segment)
+        lamp     → read_state (HSV)
+        valve    → read_state (kol açısı)
+
+    Dört tip de aynı `FrameResult`'ı döndürür ve `reading` alanı aynı
+    `GaugeReading` gövdesidir; dolayısıyla yayın katmanı (İP10) tipi hiç
+    bilmeden çalışır. Tip bilgisi **envanterden** gelir, görüntüden çıkarılmaz —
+    hangi durakta hangi gösterge olduğunu robotun turu söyler (U11).
+
+    Analog dışındaki tipler tespit kutusunu KIRPMA için kullanır; kadran
+    geometrisi (merkez, yarıçap, ibre) onlarda anlamlı değildir.
+    """
+    if gauge.type == "analog":
+        return read_frame(image, model, gauge, detect_conf=detect_conf,
+                          esik=esik, **analog_kw)
+
+    sonuc = model.predict(image, conf=detect_conf, verbose=False)[0]
+    if len(sonuc.boxes) == 0:
+        return _bos("gösterge bulunamadı")
+
+    en_iyi = int(sonuc.boxes.conf.argmax())
+    kutu = tuple(float(v) for v in sonuc.boxes.xyxy[en_iyi].tolist())
+    tespit_guveni = float(sonuc.boxes.conf[en_iyi])
+    kesit = _kirp(image, kutu)
+    if kesit.size == 0:
+        return _bos("kırpım boş", kutu, tespit_guveni)
+
+    if gauge.type == "digital":
+        from gauge_vision.read.digital import read_digital
+        okuma = read_digital(kesit, gauge)
+    elif gauge.type in ("lamp", "valve"):
+        from gauge_vision.read.state import read_state
+        okuma = read_state(kesit, gauge)
+    else:
+        return _bos(f"desteklenmeyen tip: {gauge.type}", kutu, tespit_guveni)
+
+    # Güven tespitle çarpılıyor — analog dalıyla aynı ilke: zincirin güveni en
+    # zayıf halkasından yüksek olamaz.
+    from dataclasses import replace as _replace
+    okuma = _replace(okuma, conf=okuma.conf * tespit_guveni)
+
+    return FrameResult(box_xyxy=kutu, detect_conf=tespit_guveni,
+                       center_px=None, radius_px=0.0, needle=None,
+                       reading=okuma)
+
+
 def dial_from_box(box_xyxy) -> tuple[tuple[int, int], float]:
     """Tespit kutusundan kadran merkezi ve yarıçapı."""
     x1, y1, x2, y2 = box_xyxy
