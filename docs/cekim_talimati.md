@@ -36,21 +36,38 @@ sadece merak edersen).
 
 ### Çekerken dikkat
 
+> ⚠ **19.08'de ilk çekim yapıldı ve buradaki tarif yetersiz çıktı.** "Kadranın
+> tamamı kareye girsin" denmişti; makul biçimde tüm dizüstü + oda çekildi ve
+> kadran karenin küçük bir parçası kaldı, üstelik çoğu kare çok eğikti.
+> Zincir 12 karenin 12'sinde merkez rafinesini ve yatıklık kestirimini
+> yapamadı. Aşağıdaki iki madde bu yüzden **kalın.**
+
 | ✅ Yap | ❌ Yapma |
 |---|---|
-| Ekrandan **40-60 cm** uzakta dur | Çok yaklaşma (piksel deseni çıkar) |
-| Her karede **açıyı biraz değiştir** — bazen hafif yandan, bazen karşıdan | 12 karenin hepsini birebir aynı açıdan çekme |
+| **Kadran kareyi DOLDURSUN** — kadran + `#NN` şeridi karenin en az %70'i olsun | Ekranı, klavyeyi, masayı, odayı kareye alma |
+| **Telefonu ekrana MÜMKÜN OLDUĞUNCA DİK tut** ve **yatay tut, eğme** | Yandan/yukarıdan bakma, telefonu döndürme |
+| Ekrandan **25-40 cm** uzakta dur | Çok yaklaşma (piksel deseni çıkar) |
 | Oda ışığı normal olsun | **Flaş kullanma** (ekran patlar) |
 | Telefonu sabit tut, odak otursun | Dijital zoom yapma |
-| Kadranın tamamı kareye girsin | Kadranın kenarını kesme |
 | `#NN` yazısı okunur kalsın | Alt şeridi kadraj dışında bırakma |
 
-**Neden açıyı değiştiriyoruz:** ölçmek istediğimiz şey tam olarak bu. Zincirin
-eğik bakışta ne yaptığı İP14'ün en önemli bulgusuydu; gerçek fotoğrafta da
-sınanmalı. Ama abartma — 0-20° arası yeter, kadran hep tam görünsün.
+**Neden bu kadar katı:** ölçmek istediğimiz şey "gerçek mercek ve sensör zincire
+ne katıyor". Kamerayı eğersen, üstüne bir de perspektif hatası binder ve iki
+etki ayrılamaz hâle gelir — çıkan sayı hiçbir soruyu cevaplamaz. Eğikliğin
+etkisi **zaten** İP14'te tek tek ölçüldü.
 
-**Moiré (ekran deseni) çıkarsa:** telefonu birkaç santim ileri/geri al ya da
-çok hafif yan dur. Düzelir.
+**Telefonu eğmemek ayrıca önemli:** yatıklık kestirimi kadranın çizgi deseninden
+çalışıyor ve eğik fotoğrafta o desen bozuluyor. İlk çekimde kestirim 12/12
+başarısız oldu.
+
+**Moiré (ekran deseni) çıkarsa:** telefonu birkaç santim ileri/geri al. Yan
+durarak çözme — eğiklik daha büyük sorun.
+
+### İkinci tur (isteğe bağlı, sonra)
+
+Kolay set çalıştıktan **sonra** bir de eğik set çekilebilir: aynı 12 kare, ama
+telefon 20-30° yandan. O zaman iki tablo yan yana konur ve "gerçek fotoğrafta
+eğiklik ne kadar hata katıyor" ayrı bir satır olarak raporlanır.
 
 ### En önemli kural
 
