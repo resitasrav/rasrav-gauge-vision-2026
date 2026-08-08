@@ -17,7 +17,15 @@
 | **S5** | Güven eşiği / kapsama dengesi | **0,70 kalıyor.** Kapsama %88,1, bin turda ~2 hatalı sayı kabul edildi. |
 | **S4** | Eşik gösterge başına farklılaşsın mı | **Hayır** — S5'in cevabı tek genel eşiği onayladı. `conf_threshold` ezme yolu envanterde açık kalıyor ama kullanılmıyor. |
 
-Kalan açık maddeler: **S2** (vananın açık konumu) ve **S3** (dijital panelde negatif değer).
+**S2 ve S3 bilinçli olarak AÇIK bırakıldı** (Reşit'in kararı, 08.08): ikisinin de
+cevabı sahayı görmeden verilemez. Bunun yerine **ikisi de envanterden ayarlanır
+hâle getirildi** — cevap gelince değişecek olan YAML satırı, kod değil.
+
+| | Eskiden | Şimdi |
+|---|---|---|
+| **S2** vana montajı | "yatay = açık" koda gömülüydü | `states[].lever_angle` envanterde · `scripts/kalibre_vana.py` sahada ölçüp satırı yazıyor |
+| **S2** tolerans | kodda `VANA_TOLERANS_DEG = 20` | `reading.tolerance_deg` envanterde (kod↔envanter ayrışması artık imkânsız) |
+| **S3** eksi işareti | `allow_minus` YAML'da vardı ama **okunmuyordu** | uygulanıyor: panel eksi gösteremiyorsa eksi çözen okuma `unreadable` |
 
 ---
 
@@ -55,20 +63,51 @@ elle etiketleme gerektirmez.
 
 ## 🟡 Varsayımla ilerlendi — onayın gerekiyor
 
-### S2. Vananın "açık" konumu montaja göre değişir mi?
+### S2. Vananın "açık" konumu montaja göre değişir mi? — 🟢 **açık, ama artık engel değil (08.08)**
 
-**Varsayım:** kol boru hattına **paralel (yatay)** ise `open`, **dik** ise
-`closed`. Envanterdeki not bunu ima ediyor ("Kol boru hattına paralel").
+**Varsayım (değişmedi):** kol boru hattına **paralel (yatay)** ise `open`, **dik**
+ise `closed`. Envanterdeki not bunu ima ediyor ("Kol boru hattına paralel").
 
-**Risk:** gerçek montajda ters olabilir ve bu **sessizce** yanlış durum üretir —
-vana kapalıyken "açık" raporlanır. Testlerin hiçbiri bunu yakalayamaz çünkü kod
-ve sentetik üreteç aynı varsayımı paylaşıyor.
+**Risk (değişmedi):** gerçek montajda ters olabilir ve bu **sessizce** yanlış
+durum üretir — vana kapalıyken "açık" raporlanır.
 
-**Önerim:** envantere gösterge başına `open_angle` alanı eklemek (0 = yatay,
-90 = dik). Böylece montaj farkı YAML'a satır, koda değişiklik olmaz (2. kural).
-Tek satırlık iş ama **hangi değerin doğru olduğunu sahayı gören söyler.**
+**08.08'de yapılan — varsayım koddan envantere taşındı.** Durum↔açı eşleşmesi
+artık `states[].lever_angle` alanından geliyor, tolerans da
+`reading.tolerance_deg`'den. Montaj farkı = YAML'da iki sayıyı takas etmek;
+kodda tek satır değişmiyor (2. kural).
 
-### S3. Dijital panelde negatif değerler kabul edilebilir mi?
+Üç sağlama eklendi (`config.py`), üçü de sessiz hata sınıfına karşı:
+- durumların **bir kısmı** açı beyan edip diğerleri etmezse reddediliyor
+- iki durum toleranslarıyla **çakışıyorsa** reddediliyor (`open: 0`, `closed: 10`
+  ±20° ile ayırt edilemez; kod yine cevap üretirdi ve o cevap yazı-tura olurdu)
+- tolerans 0-90 dışındaysa reddediliyor
+
+**Sahada nasıl kapatılır (5 dakika):** vananın açık ve kapalı hâlinden birkaç
+fotoğraf çekilir, dosya adları `open_01.jpg` / `closed_01.jpg` yapılır ve
+`python scripts\kalibre_vana.py --klasor <klasör>` koşturulur. Script kol
+açılarını ölçüp YAML'a yapıştırılacak satırları basar.
+
+*Araç bilinen ground truth'ta doğrulandı:* 12 sentetik karede `closed` 89,1°
+(beyan 90 → sapma 0,9°), `open` 1,8° (beyan 0 → sapma 1,8°), yayılma < 4,7°.
+
+**Senden hâlâ gereken:** sahaya inince o birkaç fotoğraf. Karar değil, ölçüm.
+
+**Neden daha büyük bir öğrenici değil:** durum başına öğrenilecek **tek bir
+sayı** var. Bir sınıflandırıcı bunu üç fotoğrafla daha iyi yapamaz, sadece
+neden öyle karar verdiğini söyleyemez hâle gelir. Geometrik kestirim yetmezse
+(ıslak/paslı kol, kısmi kapanma) doğru adım İP12'ye sınıflandırıcı eklemek
+olur; o zaman bu script etiketli kümenin sağlamasını yapan araç olarak kalır.
+
+### S3. Dijital panelde negatif değerler kabul edilebilir mi? — 🟢 **açık, ama artık engel değil (08.08)**
+
+**08.08'de yapılan:** `allow_minus` alanı envanterde zaten vardı ama **okuyucu
+onu hiç okumuyordu** — yani bayrak bir belge, kod başka bir şey yapıyordu (B6'nın
+aynısı). Şimdi uygulanıyor: `allow_minus: false` iken eksi çözen bir okuma
+`unreadable` dönüyor. **İşaret atılıp pozitif sayı UYDURULMUYOR** — bilinen bir
+okuma hatasının üstüne makul görünen değer koymak 3. kuralın tam yasağıdır.
+
+DP-401 şu an `true`; cevabın gelmesi tek satırlık bir değişiklik.
+
 
 **Ölçülen:** eksi işaretli okumalarda güven ~0,75'e düşüyor ve DP-401'in 0,80
 eşiğini geçemiyor. Sebep: eksi yalnızca orta çubuğu yakar, yüksekliği segment

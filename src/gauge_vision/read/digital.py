@@ -399,6 +399,13 @@ def read_digital(image: np.ndarray, gauge: Gauge) -> GaugeReading:
     guven = float(min(guvenler)) if guvenler else 0.0
     metin = _noktayi_yerlestir(haneler, decimals)
 
+    if metin.startswith("-") and not gauge.allow_minus:
+        # Panel eksi gösteremiyorsa, yanan o tek orta çubuk eksi işareti DEĞİLDİR
+        # — kirli bir segment, bir yansıma ya da yarım yanmış bir hanedir. İşareti
+        # atıp pozitif sayıyı yayınlamak, bilinen bir okuma hatasının üstüne
+        # makul görünen bir değer koymaktır (3. kural).
+        return bos(DURUM_OKUNAMADI, guven)
+
     try:
         deger = float(metin)
     except ValueError:

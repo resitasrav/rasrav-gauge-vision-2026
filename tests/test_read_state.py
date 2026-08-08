@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from gauge_vision.config import load_gauges
-from gauge_vision.read.state import VANA_TOLERANS_DEG, read_state
+from gauge_vision.read.state import VARSAYILAN_KOL_ACILARI, read_state
 from gauge_vision.synth.degrade import Bozulma, bozulmalar_uygula
 from gauge_vision.synth.dial import DialTruth
 from gauge_vision.synth.state import render_lamp, render_valve
@@ -124,12 +124,48 @@ def test_arada_kalan_kol_okunmuyor(vana, sapma):
 
 
 def test_tolerans_siniri_envanterle_tutarli(vana):
-    """Kabul edilen en büyük sapma `VANA_TOLERANS_DEG` olmalı."""
+    """Kabul edilen en büyük sapma envanterdeki `tolerance_deg` olmalı.
+
+    Tolerans artık koddan değil YAML'dan geliyor; test de sabit bir sayıya
+    değil envanterin kendi beyanına bakıyor. Beyan değişirse test onunla
+    birlikte kayar — ayrışma imkânsız hâle gelir.
+    """
     kabul = [s for s in range(0, 46)
              if read_state(render_valve(vana, "open", sapma_deg=float(s))[0],
                            vana).value is not None]
-    assert max(kabul) <= VANA_TOLERANS_DEG + 1
-    assert max(kabul) >= VANA_TOLERANS_DEG - 3
+    assert max(kabul) <= vana.tolerance_deg + 1
+    assert max(kabul) >= vana.tolerance_deg - 3
+
+
+def test_montaj_varsayimi_envanterde_yasiyor(vana):
+    """`lever_angle` takas edilince okuma da takas olmalı — kod değişmeden.
+
+    S2'nin asıl riski buydu: montajda kol ters takılıysa vana kapalıyken
+    "açık" yayınlanır ve hiçbir test bunu yakalayamaz, çünkü kod ile sentetik
+    üreteç aynı varsayımı paylaşır. Bu test o paylaşımı KIRIYOR: görüntüyü
+    üreteç kendi varsayımıyla çizerken okuyucuya ters envanter veriliyor.
+    Cevap ters dönmüyorsa varsayım hâlâ koda gömülü demektir.
+    """
+    from dataclasses import replace
+
+    ters = replace(vana, states=[
+        {"name": "open", "lever_angle": 90},
+        {"name": "closed", "lever_angle": 0},
+    ])
+    img, _ = render_valve(vana, "open")           # üreteç: kol yatay çiziliyor
+    assert read_state(img, vana).value == "open"
+    assert read_state(img, ters).value == "closed"
+
+
+def test_beyansiz_envanterde_geri_dusus_calisiyor(vana):
+    """Hiçbir durum açı beyan etmezse belgelenmiş varsayıma düşülür."""
+    from dataclasses import replace
+
+    beyansiz = replace(vana, states=[{"name": "open"}, {"name": "closed"}])
+    assert beyansiz.state_angles == {}
+    img, _ = render_valve(vana, "closed")
+    assert read_state(img, beyansiz).value == "closed"
+    assert VARSAYILAN_KOL_ACILARI["closed"] == 90.0
 
 
 def test_vana_bos_karede_susuyor(vana):

@@ -125,7 +125,13 @@ gauges:
       count: 4                        # ekrandaki hane sayısı
       decimals: 1                     # 123.4 gibi
       style: seven_segment            # seven_segment | lcd_text
-      allow_minus: true               # negatif değer gösterebilir mi
+      allow_minus: true               # negatif değer gösterebilir mi.
+                                      # false ise eksi işareti çözülmüş bir okuma
+                                      # OKUMA HATASI sayılır (panel eksi
+                                      # gösteremiyorsa o orta çubuk başka bir
+                                      # şeydir) → unreadable, işaret atılıp
+                                      # pozitif sayı UYDURULMAZ.
+                                      # ⚠ DP-401 için doğrulanmadı — docs/SORULAR.md S3
     range:                            # OCR sonucu makul mü — sağlık kontrolü
       min: -50.0
       max: 200.0
@@ -156,8 +162,26 @@ gauges:
     location: Hat A, çıkış
     waypoint: WP-06
     states:
+      # lever_angle: kol O DURUMDAYKEN kolun açısı (derece, 0° = yatay).
+      # Kol iki uçlu olduğu için açı 180° modunda anlamlıdır: 0 ile 180 aynı şey.
+      #
+      # ⚠ AŞAĞIDAKİ İKİ SAYI VARSAYIMDIR — sahada doğrulanacak (docs/SORULAR.md S2).
+      # Gerçek montajda eşleşme ters olabilir ve bu SESSİZCE yanlış durum üretir:
+      # vana kapalıyken "açık" yayınlanır. Hiçbir birim testi yakalayamaz çünkü
+      # kod ve sentetik üreteç aynı varsayımı paylaşır. Ters çıkarsa düzeltme
+      # bu iki satırı takas etmektir, kod değişmez (2. kural).
+      # Sahada ölçmek için: scripts/kalibre_vana.py
       - name: open
         meaning: Kol boru hattına paralel
+        lever_angle: 0
       - name: closed
         meaning: Kol boru hattına dik
-    notes: Kol açısı ±20° içindeyse o duruma sayılır, arada kalırsa unreadable
+        lever_angle: 90
+    reading:
+      tolerance_deg: 20             # kol beyan edilen açıdan bu kadar sapabilir;
+                                    # dışı hiçbir duruma sayılmaz → unreadable.
+                                    # Yarı açık vana GERÇEK bir durumdur ve
+                                    # "açık" diye yayınlanması tehlikelidir.
+    notes: >-
+      Durum↔açı eşleşmesi envanterden gelir, koda gömülü değildir. Üç konumlu
+      bir vana ya da farklı montaj = buraya satır eklemek/değiştirmek.

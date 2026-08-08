@@ -171,3 +171,58 @@ def test_ayni_id_iki_kez_hata_veriyor(tmp_path):
 
     with pytest.raises(ConfigError, match="iki kez"):
         load_gauges(p)
+
+
+# ------------------------------------------------- vana: kol açısı beyanları --
+
+def _vana_dosyasi(tmp_path, states, reading=None):
+    doc = {"version": 1, "gauges": [
+        {"id": "V-1", "name": "test vana", "type": "valve", "states": states,
+         **({"reading": reading} if reading else {})}]}
+    p = tmp_path / "v.yaml"
+    p.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
+    return p
+
+
+def test_kol_acilari_envanterden_okunuyor():
+    """VL-601'in beyanı `Gauge.state_angles` üzerinden görünmeli."""
+    v = load_gauges()["VL-601"]
+    assert v.state_angles == {"open": 0.0, "closed": 90.0}
+    assert v.tolerance_deg == 20.0
+
+
+def test_yarim_beyan_reddediliyor(tmp_path):
+    """Bir durum açı beyan edip diğeri etmezse envanter yarı yarıya karışır."""
+    p = _vana_dosyasi(tmp_path, [{"name": "open", "lever_angle": 0},
+                                 {"name": "closed"}])
+    with pytest.raises(ConfigError, match="ya hepsi ya hiçbiri"):
+        load_gauges(p)
+
+
+def test_ayirt_edilemeyen_acilar_reddediliyor(tmp_path):
+    """0° ve 10° ±20° toleransla ayrılamaz — kod yine cevap üretirdi, o cevap
+    yazı-tura olurdu. Çelişki okumada değil envanterde."""
+    p = _vana_dosyasi(tmp_path, [{"name": "open", "lever_angle": 0},
+                                 {"name": "closed", "lever_angle": 10}])
+    with pytest.raises(ConfigError, match="ayırt edilemez"):
+        load_gauges(p)
+
+
+def test_kol_acisi_180_modunda_sarmaliyor(tmp_path):
+    """Kol iki uçludur: 180° ile 0° aynı fiziksel duruştur."""
+    p = _vana_dosyasi(tmp_path, [{"name": "open", "lever_angle": 180},
+                                 {"name": "closed", "lever_angle": 90}])
+    assert load_gauges(p)["V-1"].state_angles["open"] == 0.0
+
+
+def test_gecersiz_tolerans_reddediliyor(tmp_path):
+    p = _vana_dosyasi(tmp_path, [{"name": "open", "lever_angle": 0},
+                                 {"name": "closed", "lever_angle": 90}],
+                      reading={"tolerance_deg": 0})
+    with pytest.raises(ConfigError, match="tolerance_deg"):
+        load_gauges(p)
+
+
+def test_allow_minus_varsayilani_acik():
+    """Envanter susarsa negatif değere izin verilir; DP-401 açıkça true diyor."""
+    assert load_gauges()["DP-401"].allow_minus is True

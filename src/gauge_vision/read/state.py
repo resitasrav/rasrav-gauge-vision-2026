@@ -71,7 +71,15 @@ RENK_ARALIKLARI: dict[str, list[tuple[int, int]]] = {
 LAMBA_BOLGE_ORANI = 0.45
 
 # --- Vana ---
-VANA_TOLERANS_DEG = 20.0     # envanterdeki nota karşılık gelir
+# Durum↔kol açısı eşleşmesi ENVANTERDEN gelir (`states[].lever_angle`) ve
+# tolerans da öyle (`reading.tolerance_deg`). Buradaki sözlük yalnızca envanter
+# hiçbir açı beyan etmediğinde devreye giren geri düşüştür.
+#
+# Neden geri düşüş var ama sabit yok: montaj bilgisi göstergenin özelliğidir,
+# algoritmanınki değil. Kolu ters takılmış bir vanada doğru cevap YAML satırını
+# değiştirmektir, kodu değil. Geri düşüş de kaybolmasın diye burada duruyor —
+# envantersiz bir çağrı sessizce sıfır açı varsaymasın.
+VARSAYILAN_KOL_ACILARI: dict[str, float] = {"open": 0.0, "closed": 90.0}
 # Kolun bileşeni bu orandan küçükse gürültüdür.
 VANA_MIN_ALAN_ORANI = 0.005
 # Kol uzun ve ince olmalı: iki eksenin oranı bunun altındaysa şekil kol değil.
@@ -198,12 +206,23 @@ def _kol_acisi(image: np.ndarray) -> tuple[float, float] | None:
     return aci, uzama
 
 
-def _vana_durumu(image: np.ndarray, izinli: list[str]) -> tuple[str | None, float]:
+def _aci_farki(a: float, b: float) -> float:
+    """İki kol açısı arasındaki mesafe, 180° modunda.
+
+    Kol iki uçludur: 175° ile 5° arasındaki fark 170 değil 10 derecedir. Bu
+    sarmalama unutulursa yataya yakın bir kol, yatay beyan edilmiş duruma
+    "170° uzak" görünür ve okuma sessizce reddedilir.
+    """
+    fark = abs(a - b) % 180.0
+    return min(fark, 180.0 - fark)
+
+
+def _vana_durumu(image: np.ndarray, gauge: Gauge) -> tuple[str | None, float]:
     """Vananın durumu ve güveni.
 
-    Referans: kol YATAY ise (0° / 180°) boru hattına paralel → `open`,
-    DİK ise (90°) → `closed`. Gerçek montajda bu eşleşme değişebilir; kalıcı
-    çözüm envantere `open_angle` alanı eklemektir (bkz. docs/SORULAR.md).
+    Durum↔açı eşleşmesi ve tolerans envanterden okunur; hangi kol açısının
+    "açık" demek olduğu bir MONTAJ bilgisidir, algoritma sabiti değil. Envanter
+    hiçbir açı beyan etmemişse `VARSAYILAN_KOL_ACILARI` devreye girer.
     """
     sonuc = _kol_acisi(image)
     if sonuc is None:
@@ -214,25 +233,26 @@ def _vana_durumu(image: np.ndarray, izinli: list[str]) -> tuple[str | None, floa
         # Şekil uzun ve ince değil — kol değil, gürültü ya da başka bir nesne.
         return None, 0.0
 
-    # 180° modunda yataya ve dikeye uzaklık.
-    yatay_fark = min(aci, 180.0 - aci)
-    dikey_fark = abs(aci - 90.0)
+    beyan = gauge.state_angles
+    izinli = gauge.state_names
+    if not beyan:
+        beyan = {ad: VARSAYILAN_KOL_ACILARI[ad]
+                 for ad in izinli if ad in VARSAYILAN_KOL_ACILARI}
 
-    adaylar = []
-    if "open" in izinli:
-        adaylar.append(("open", yatay_fark))
-    if "closed" in izinli:
-        adaylar.append(("closed", dikey_fark))
+    adaylar = [(ad, _aci_farki(aci, hedef)) for ad, hedef in beyan.items()
+               if ad in izinli]
     if not adaylar:
         return None, 0.0
 
     adaylar.sort(key=lambda kv: kv[1])
     en_iyi, en_iyi_fark = adaylar[0]
+    # Tek durumlu envanterde karşılaştırılacak ikinci aday yok; 180° modunda
+    # iki açı en fazla 90° ayrık olabilir, üst sınır odur.
     ikinci_fark = adaylar[1][1] if len(adaylar) > 1 else 90.0
 
     # Kapı envanterden: tolerans dışındaki açı hiçbir duruma sayılmaz. Yarı
     # açık bir vana GERÇEK bir durumdur ve "açık" diye yayınlanması tehlikelidir.
-    if en_iyi_fark > VANA_TOLERANS_DEG:
+    if en_iyi_fark > gauge.tolerance_deg:
         return None, 0.0
 
     # Güven, doğru duruma ne kadar YAKIN olduğundan değil, DİĞER durumdan ne
@@ -267,7 +287,7 @@ def read_state(image: np.ndarray, gauge: Gauge) -> GaugeReading:
     if gauge.type == "lamp":
         durum, guven = _lamba_durumu(image, izinli)
     else:
-        durum, guven = _vana_durumu(image, izinli)
+        durum, guven = _vana_durumu(image, gauge)
 
     if durum is None or guven < gauge.conf_threshold:
         return GaugeReading(gauge_id=gauge.id, type=gauge.type, value=None,

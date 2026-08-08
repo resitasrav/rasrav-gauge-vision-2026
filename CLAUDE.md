@@ -140,6 +140,7 @@ python scripts\kalibre_ip15.py            # güven eşiği kalibrasyonu (İP15)
 python scripts\olc_ip11.py --zor          # dijital panel doğruluğu (İP11)
 python scripts\olc_ip12.py --zor          # lamba/vana doğruluğu (İP12)
 python scripts\yayinla_ip10.py            # inspect/reading yayını (İP10)
+python scripts\kalibre_vana.py --klasor data\real\VL-601   # kol açısı → YAML satırı (S2)
 python scripts\canli_oku.py --kaynak 0 --gosterge PT-101  # kamera demosu
 python scripts\kadran_onizle.py       # kadranı kaydırıcıyla elle dene
 python -c "from gauge_vision.config import load_gauges; print(load_gauges().keys())"
@@ -238,8 +239,22 @@ da çıktı (panel çerçevesi sönük segmentten parlak).
 **Envanterdeki her sayısal beyan için o beyanı sınayan bir test olmalı.** Vana
 toleransında envanter ±20° diyordu, kod fiilen ±6° yapıyordu; ikisi de kendi içinde
 tutarlı olduğu için hiçbir birim testi yakalamadı, ancak uçtan uca ölçüm görünür kıldı.
-`sweep_deg` için İP2'de yapılmıştı, vana için 14.08'de eklendi; diğerleri gözden
-geçirilmeli.
+`sweep_deg` için İP2'de yapılmıştı, vana için 14.08'de eklendi.
+
+**Daha iyisi: beyanı kodda İKİNCİ KEZ yazma.** 18.08'de vana toleransı koddaki
+`VANA_TOLERANS_DEG` sabitinden çıkarılıp `reading.tolerance_deg`'e taşındı; aynı
+şekilde "yatay = açık" varsayımı `states[].lever_angle` oldu. Tek kaynak varsa
+ayrışma **imkânsızdır**, testle kovalanması gerekmez. Aynı gün `allow_minus`'ın
+YAML'da durup koda hiç bakmadığı da görüldü — bayrak eklemek yetmiyor, okuyan
+tarafı da bağlamak gerekiyor.
+
+**Montaj bilgisi algoritma sabiti değildir.** Hangi kol açısının "açık" demek
+olduğu göstergenin montajına aittir; aynı kod ters takılmış bir vanayı da doğru
+okumalı, fark YAML satırında kalmalı. Sahada ölçmek için `scripts/kalibre_vana.py`
+(etiketli fotoğraf → YAML satırı). Testte varsayımın gerçekten envanterde yaşadığı
+`test_montaj_varsayimi_envanterde_yasiyor` ile sınanıyor: görüntü üretecin
+varsayımıyla çizilirken okuyucuya TERS envanter veriliyor, cevap ters dönmezse
+varsayım hâlâ koda gömülü demektir.
 
 **Ölçüm tablosu düz çıkıyorsa sonuç değil uyarıdır.** İP15'in ilk eşik taraması
 0,00-0,70 arası tamamen düz çıktı; sebebi, girdiyi üreten ölçümün eşiği zaten uygulamış
@@ -252,7 +267,7 @@ bu varsayımdan beslendiği için envanter değişince `uret_sentetik.py` yenide
 
 **Mevcut sentetik veri:** `data/synthetic/v0` — 100 görüntü, tohum 0 (eğitimde kullanıldı,
 53 karesi karışık kümenin içinde) · `data/synthetic/v1` — tohum 1, **sızıntısız ölçüm
-kümesi**, zincir ölçümü bunda koşar. Testler: **221/221**.
+kümesi**, zincir ölçümü bunda koşar. Testler: **230/230**.
 
 ---
 

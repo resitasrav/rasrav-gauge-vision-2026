@@ -150,3 +150,22 @@ def test_mesaj_gövdesi_uretiliyor(panel):
     for alan in ("gauge_id", "type", "value", "unit", "conf", "status"):
         assert alan in m
     assert m["type"] == "digital"
+
+
+def test_allow_minus_false_iken_eksi_okuma_yayinlanmiyor(panel):
+    """Panel eksi gösteremiyorsa, çözülen eksi işareti bir OKUMA HATASIDIR.
+
+    Doğru davranış işareti atıp pozitif sayıyı yayınlamak değil, susmaktır:
+    bilinen bir hatanın üstüne makul görünen bir değer koymak, 3. kuralın tam
+    yasakladığı şeydir. -12.3 okuyup 12.3 yayınlamak sessiz yanlış üretir.
+    """
+    from dataclasses import replace
+
+    img, _ = render_digital(panel, -12.3)
+    izinli = read_digital(img, panel)
+    yasak = read_digital(img, replace(panel, digits={**panel.digits,
+                                                     "allow_minus": False}))
+    assert yasak.value is None
+    # Yasak sürüm reddediyorsa, izinli sürüm ya doğru okumalı ya da o da
+    # reddetmeli — asla işareti düşürüp pozitif sayı üretmemeli.
+    assert izinli.value in (None, -12.3)

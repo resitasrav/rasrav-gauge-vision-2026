@@ -160,6 +160,36 @@ class Gauge:
     def state_names(self) -> list[str]:
         return [s["name"] for s in self.states]
 
+    @property
+    def state_angles(self) -> dict[str, float]:
+        """Durum adı → o durumdaki kol açısı (derece, 180° modunda).
+
+        Yalnızca `lever_angle` beyan eden durumlar döner; hiçbiri beyan
+        etmemişse boş sözlük. Okuyucu boş sözlük görünce kendi belgelenmiş
+        varsayımına düşer — ama o varsayımın nerede olduğu tek yerde durur.
+
+        Neden envanterde: durum↔açı eşleşmesi göstergenin MONTAJ bilgisidir,
+        algoritmanın değil. Aynı kod, kolu ters takılmış bir vanayı da doğru
+        okumalı; fark YAML satırında kalmalı (2. kural).
+        """
+        return {s["name"]: float(s["lever_angle"]) % 180.0
+                for s in self.states if s.get("lever_angle") is not None}
+
+    @property
+    def tolerance_deg(self) -> float:
+        """Kol beyan edilen açıdan bu kadar sapabilir; dışı → `unreadable`.
+
+        Envanterden okunuyor çünkü koda gömülü bir tolerans ile envanterdeki
+        beyan sessizce ayrışabiliyor — 14.08'de tam olarak bu oldu (envanter
+        ±20°, kod fiilen ±6°). Tek kaynak varsa ayrışma imkânsızdır.
+        """
+        return float((self.raw.get("reading") or {}).get("tolerance_deg", 20.0))
+
+    @property
+    def allow_minus(self) -> bool:
+        """Dijital panel negatif değer gösterebilir mi (varsayılan: evet)."""
+        return bool((self.digits or {}).get("allow_minus", True))
+
     def tick_values(self) -> tuple[list[float], list[float]]:
         """Ana ve ara çizgilerin DEĞERLERİ (açıları değil): (majors, minors).
 
@@ -219,6 +249,54 @@ def load_gauges(path: str | Path | None = None) -> dict[str, Gauge]:
     return gauges
 
 
+def _dogrula_kol_acilari(entry: dict[str, Any], states: list[dict[str, Any]],
+                         gid: str, where: str) -> None:
+    """`lever_angle` ve `tolerance_deg` beyanlarını sınar (vana).
+
+    Üç kontrol, üçü de sessiz hata sınıfına karşı:
+
+    1. **Ya hepsi ya hiçbiri.** Durumların bir kısmı açı beyan edip diğerleri
+       etmezse, beyan etmeyenler okuyucunun varsayımına düşer ve envanter ile
+       kod yarı yarıya karışır. Bu, `sweep_deg` olmadan `direction` yazmakla
+       aynı hata sınıfıdır.
+    2. **Tolerans anlamlı olmalı.** 0 hiçbir okumayı geçirmez, 90'dan büyük
+       tolerans 180° modunda her açıyı her duruma sokar.
+    3. **İki durum toleranslarıyla ÇAKIŞMAMALI.** `open: 0` ve `closed: 10`
+       ±20° toleransla ayırt edilemez; kod yine de bir cevap üretirdi ve o
+       cevap yazı-tura olurdu. Beyan çelişkiliyse okuma değil envanter yanlıştır.
+    """
+    acili = [s for s in states if s.get("lever_angle") is not None]
+    if not acili:
+        return
+    if len(acili) != len(states):
+        eksik = [s["name"] for s in states if s.get("lever_angle") is None]
+        raise ConfigError(
+            f"{where} ({gid}): durumların bir kısmı 'lever_angle' beyan etmiş, "
+            f"{eksik} etmemiş — ya hepsi ya hiçbiri")
+
+    try:
+        acilar = {s["name"]: float(s["lever_angle"]) % 180.0 for s in acili}
+    except (TypeError, ValueError) as e:
+        raise ConfigError(f"{where} ({gid}): 'lever_angle' sayı olmalı — {e}") from e
+
+    tol = float((entry.get("reading") or {}).get("tolerance_deg", 20.0))
+    if not 0.0 < tol <= 90.0:
+        raise ConfigError(
+            f"{where} ({gid}): tolerance_deg 0-90 aralığında olmalı, {tol} verildi")
+
+    adlar = list(acilar)
+    for i in range(len(adlar)):
+        for j in range(i + 1, len(adlar)):
+            a, b = acilar[adlar[i]], acilar[adlar[j]]
+            fark = abs(a - b) % 180.0
+            fark = min(fark, 180.0 - fark)   # kol iki uçlu: 180° modunda mesafe
+            if fark < 2 * tol:
+                raise ConfigError(
+                    f"{where} ({gid}): '{adlar[i]}' ({a:.0f}°) ve '{adlar[j]}' "
+                    f"({b:.0f}°) arasındaki {fark:.0f}°, ±{tol:.0f}° toleransla "
+                    f"ayırt edilemez — açıları ayırın ya da toleransı düşürün")
+
+
 def _build_gauge(entry: dict[str, Any], defaults: dict[str, Any], where: str) -> Gauge:
     for key in ("id", "name", "type"):
         if not entry.get(key):
@@ -249,6 +327,7 @@ def _build_gauge(entry: dict[str, Any], defaults: dict[str, Any], where: str) ->
         for s in states:
             if not s.get("name"):
                 raise ConfigError(f"{where} ({gid}): durumlardan birinde 'name' yok")
+        _dogrula_kol_acilari(entry, states, gid, where)
 
     return Gauge(
         id=gid,
