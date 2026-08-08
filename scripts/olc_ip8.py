@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import cv2
@@ -70,15 +71,39 @@ class _TumKare:
         return [_TumKare._Sonuc(h, w)]
 
 
-def fotograflari_bul(klasor: Path) -> list[Path]:
-    """Klasördeki fotoğraflar, çekim sırasına göre.
+def fotograflari_bul(klasor: Path) -> tuple[list[Path], list[str]]:
+    """Klasördeki fotoğraflar, çekim sırasına göre. `(yollar, uyarılar)`.
 
-    Sıralama önce dosya adına göre: telefonlar artan numara verir (IMG_0041,
-    IMG_0042...) ve bu, değişiklik zamanından daha güvenilirdir — kopyalama
-    işlemleri zaman damgasını bozar, adı bozmaz.
+    **Alfabetik sıralama BURADA ÇALIŞMAZ** ve bunu ilk gerçek çekim gösterdi:
+    telefondan gelen adlar `IMG-1 … IMG-12` gibi **sıfır dolgusuz** olduğu için
+    alfabetik sıra `IMG-1, IMG-10, IMG-11, IMG-12, IMG-2 …` veriyor. On iki
+    karenin on biri yanlış değere eşleşti; sayım denetimi bunu yakalayamadı
+    çünkü sayı doğruydu, **sıra** yanlıştı. (Kontak sayfası yakaladı.)
+
+    Doğrusu, addaki SAYIYA göre sıralamak. Her ad tam bir tam sayı içeriyorsa ve
+    bu sayılar benzersizse sıra ondan kurulur — `IMG-3` ile `IMG3` arasındaki
+    biçim farkı da böylece önemsizleşir. Koşul sağlanmazsa alfabetiğe düşülüyor
+    ama **sessizce değil**: uyarı basılıyor, çünkü sessiz bir sıra hatası
+    tablonun tamamını çöpe çevirir ve sayılar makul görünmeye devam eder.
     """
-    return sorted(p for p in klasor.iterdir()
-                  if p.suffix.lower() in UZANTILAR and p.is_file())
+    yollar = [p for p in klasor.iterdir()
+              if p.suffix.lower() in UZANTILAR and p.is_file()]
+    uyarilar: list[str] = []
+
+    sayilar = {}
+    for p in yollar:
+        bulunan = re.findall(r"\d+", p.stem)
+        if len(bulunan) == 1:
+            sayilar[p] = int(bulunan[0])
+
+    if len(sayilar) == len(yollar) and len(set(sayilar.values())) == len(yollar):
+        return sorted(yollar, key=lambda p: sayilar[p]), uyarilar
+
+    uyarilar.append(
+        "Dosya adlarindan sira numarasi cikarilamadi (her adda tam bir benzersiz "
+        "sayi olmali) — ALFABETIK siraya dusuldu. Kontak sayfasindaki #NN "
+        "numaralari sirayla gitmiyorsa esleme yanlistir.")
+    return sorted(yollar), uyarilar
 
 
 def kontak_sayfasi(yollar: list[Path], kayitlar: list[dict], birim: str,
@@ -109,8 +134,16 @@ def kontak_sayfasi(yollar: list[Path], kayitlar: list[dict], birim: str,
     cv2.imwrite(str(cikti), sayfa)
 
 
-def olc(yollar: list[Path], kayitlar: list[dict], gauge, model, conf: float) -> list[dict]:
-    """Her fotoğrafı okur, ground truth ile karşılaştırır."""
+def olc(yollar: list[Path], kayitlar: list[dict], gauge, model, conf: float,
+        *, perspektif: bool = False) -> list[dict]:
+    """Her fotoğrafı okur, ground truth ile karşılaştırır.
+
+    `perspektif` bir ablasyon anahtarıdır. Ekrandan çekimde kamera kadrana dik
+    duramıyor — ekran masada, fotoğrafçı ayakta — dolayısıyla eğiklik burada
+    sentetikteki gibi bir "eksen" değil, işin doğasında var. Düzeltmenin gerçek
+    fotoğrafta ne kazandırdığı ancak açık/kapalı iki koşu yan yana konunca
+    görülür (İP14'te sentetikte ölçülmüştü; gerçek görüntüde ilk kez burada).
+    """
     aralik = gauge.scale.max - gauge.scale.min
     satirlar = []
 
@@ -121,7 +154,8 @@ def olc(yollar: list[Path], kayitlar: list[dict], gauge, model, conf: float) -> 
                              "sebep": "goruntu acilamadi"})
             continue
 
-        sonuc = read_gauge(img, model, gauge, detect_conf=conf)
+        sonuc = read_gauge(img, model, gauge, detect_conf=conf,
+                           perspektif=perspektif)
         okuma = sonuc.reading
         satir = {**k, "dosya": yol.name}
 
@@ -150,6 +184,8 @@ def main() -> int:
     ap.add_argument("--agirlik", type=Path, default=None,
                     help="YOLO ağırlığı; verilmezse tespit atlanır")
     ap.add_argument("--conf", type=float, default=0.25)
+    ap.add_argument("--perspektif", action=argparse.BooleanOptionalAction,
+                    default=False, help="elips→daire düzleştirme (İP14)")
     ap.add_argument("--cikti", type=Path, default=Path(METRIK_YOLU))
     ap.add_argument("--kontak", type=Path, default=Path(KONTAK_YOLU))
     args = ap.parse_args()
@@ -164,7 +200,9 @@ def main() -> int:
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     kayitlar = manifest["kareler"]
-    yollar = fotograflari_bul(args.fotograflar)
+    yollar, uyarilar = fotograflari_bul(args.fotograflar)
+    for u in uyarilar:
+        print(f"UYARI: {u}\n")
 
     if len(yollar) != len(kayitlar):
         # Sessizce kırpıp devam etmek en tehlikeli seçenek olurdu: eşleşme
@@ -184,7 +222,8 @@ def main() -> int:
         model, tespit = _TumKare(), "yok (tum kare)"
 
     print(f"{gauge.id} · {len(yollar)} fotoğraf · tespit: {tespit}\n")
-    satirlar = olc(yollar, kayitlar, gauge, model, args.conf)
+    satirlar = olc(yollar, kayitlar, gauge, model, args.conf,
+                   perspektif=args.perspektif)
     kontak_sayfasi(yollar, kayitlar, gauge.unit or "", args.kontak)
 
     okunan = [s for s in satirlar if "hata_yuzde" in s]
