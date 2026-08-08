@@ -131,7 +131,7 @@ gauges:
                                       # gösteremiyorsa o orta çubuk başka bir
                                       # şeydir) → unreadable, işaret atılıp
                                       # pozitif sayı UYDURULMAZ.
-                                      # ⚠ DP-401 için doğrulanmadı — docs/SORULAR.md S3
+                                      # ⚠ DP-401 için doğrulanmadı — STAJ/SORULAR.md S3
     range:                            # OCR sonucu makul mü — sağlık kontrolü
       min: -50.0
       max: 200.0
@@ -165,7 +165,7 @@ gauges:
       # lever_angle: kol O DURUMDAYKEN kolun açısı (derece, 0° = yatay).
       # Kol iki uçlu olduğu için açı 180° modunda anlamlıdır: 0 ile 180 aynı şey.
       #
-      # ⚠ AŞAĞIDAKİ İKİ SAYI VARSAYIMDIR — sahada doğrulanacak (docs/SORULAR.md S2).
+      # ⚠ AŞAĞIDAKİ İKİ SAYI VARSAYIMDIR — sahada doğrulanacak (STAJ/SORULAR.md S2).
       # Gerçek montajda eşleşme ters olabilir ve bu SESSİZCE yanlış durum üretir:
       # vana kapalıyken "açık" yayınlanır. Hiçbir birim testi yakalayamaz çünkü
       # kod ve sentetik üreteç aynı varsayımı paylaşır. Ters çıkarsa düzeltme

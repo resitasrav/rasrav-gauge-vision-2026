@@ -112,7 +112,8 @@ models/                 🔒 ağırlıklar
 outputs/ figures/ metrics/       🔒 koşu çıktıları, rapor figürleri
 notebooks/              Deneme/keşif — kalıcı kod src/ altına taşınır
 docs/  devam_notu.md   👈 OTURUMA BAŞLARKEN BUNU OKU — sırada ne var, neye dikkat et
-       SORULAR.md      👈 Reşit'in karar vermesi gerekenler (engelleyici + varsayımlar)
+       cekim_talimati.md    İP8 ekrandan çekim: adım adım ne yapılacak
+                        (SORULAR.md artık burada değil → `../SORULAR.md`, git dışı)
        literatur_ozeti.md   Mini literatür + plana yansıyan K1-K6 kararları — İP4 ✅
        veri_setleri_degerlendirme.md  8 açık set, etiket türüne göre — İP1 ✅
                         Ölçüm tabloları, karar notları

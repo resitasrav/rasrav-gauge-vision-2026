@@ -6,7 +6,7 @@ r"""Ekrandan çekilmiş fotoğraflarda uçtan uca hata tablosu (İP8).
 Zincirin **gerçek optik yoldan geçmiş** görüntüdeki hatasını ölçer. Sentetikte
 %0,19 çıkan sayının gerçek mercek, gerçek ışık ve gerçek sensör altında ne
 olduğunu gösterir. Ground truth `ekran_kadran.py`'ın yazdığı manifestten gelir;
-elle etiketleme yok, dolayısıyla etiket hatası da yok (docs/SORULAR.md · S1 · A).
+elle etiketleme yok, dolayısıyla etiket hatası da yok (STAJ/SORULAR.md · S1 · A).
 
 **Eşleştirme çekim sırasına göre, ama sıraya güvenilmiyor.** Fotoğraf sayısı
 manifestteki kare sayısına eşit değilse ölçüm **yapılmıyor**: bir kare atlanmış

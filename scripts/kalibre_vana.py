@@ -3,7 +3,7 @@ r"""Vana kol açılarını etiketli fotoğraflardan ölçer ve envanter satırı
     python scripts\kalibre_vana.py --klasor data\real\VL-601 --gosterge VL-601
 
 **Neyi çözüyor.** `configs/gauges.yaml`'daki `lever_angle` değerleri şu an
-VARSAYIM (docs/SORULAR.md · S2): "kol yatay = açık" kabul edildi. Gerçek montajda
+VARSAYIM (STAJ/SORULAR.md · S2): "kol yatay = açık" kabul edildi. Gerçek montajda
 ters olabilir ve bu **sessizce** yanlış durum üretir — vana kapalıyken "açık"
 yayınlanır. Hiçbir birim testi yakalayamaz, çünkü kod ile sentetik üreteç aynı
 varsayımı paylaşır. Varsayımı kıracak tek şey **sahadan gelen etiketli görüntü**.

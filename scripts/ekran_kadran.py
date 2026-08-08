@@ -10,7 +10,7 @@ etiketsiz) ve gerçek manometre alıp elle etiketlemek 2-3 gün. Ekrandan çekim
 görüntü **gerçek mercekten, gerçek ışıktan, gerçek sensörden** geçiyor; değer
 ise birebir biliniyor çünkü kareyi biz ürettik. Gerçek manometrenin yerini
 tutmaz — cam yansıması, metal doku ve tozlanma yok — ama sentetik ile gerçek
-arasındaki basamaktır ve elle etiketleme gerektirmez. (docs/SORULAR.md · S1)
+arasındaki basamaktır ve elle etiketleme gerektirmez. (STAJ/SORULAR.md · S1)
 
 **Neden zamanlayıcı değil elle ilerletme.** Fotoğrafçının kareyi kurması,
 odaklaması ve açıyı seçmesi gerekiyor; sabit süreli geçiş bulanık kareler

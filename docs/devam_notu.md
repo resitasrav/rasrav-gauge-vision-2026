@@ -4,7 +4,9 @@
 **Amaç:** Yeni oturum bu dosyayı okuyunca kaldığı yerden devam edebilsin.
 Durum özeti CLAUDE.md'de; **burada yalnızca "sırada ne var ve neye dikkat et" var.**
 
-> 👉 **Reşit'in bakması gerekenler ayrı dosyada:** [SORULAR.md](SORULAR.md)
+> 👉 **Reşit'in bakması gerekenler ayrı dosyada:** `..\..\SORULAR.md`
+> (ana STAJ klasörü altında, **git'e girmiyor** — uyuşmazlık defteriyle aynı yerde.
+> Karar defteri kişiseldir; kod deposunda durması gerekmez.)
 > 1 engelleyici karar (İP8 veri kaynağı), 4 varsayım onayı, 6 bilgi notu.
 
 ---
