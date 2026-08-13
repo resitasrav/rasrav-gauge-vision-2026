@@ -110,19 +110,34 @@ def read_needle_angle(
 # ------------------------------------------------------------ kutupsal tarama --
 
 def _read_polar(gray: np.ndarray, center: tuple[int, int], radius: float) -> NeedleReading | None:
-    """Merkezden çıkan ışınlar boyunca kesintisiz koyu şeridi arar.
+    """Merkezden çıkan ışınlar boyunca kesintisiz koyu VEYA açık şeridi arar.
 
-    Kadran çizgileri ve sayı etiketleri de koyudur; ayırt edici özellik onların
-    merkezden BAŞLAMAMASIDIR. Bu yüzden ölçüt "kaç koyu piksel var" değil,
-    "merkezin hemen dışından itibaren koyu kalarak ne kadar uzanıyor" olarak
-    seçildi. Sayı etiketi ışının ortasında bir kopukluğun ardında kalır ve
-    şeridi uzatmaz.
+    Kadran çizgileri ve sayı etiketleri de zeminden farklı renktedir; ayırt
+    edici özellik onların merkezden BAŞLAMAMASIDIR. Bu yüzden ölçüt "kaç farklı
+    piksel var" değil, "merkezin hemen dışından itibaren kesintisiz ne kadar
+    uzanıyor" olarak seçildi. Sayı etiketi ışının ortasında bir kopukluğun
+    ardında kalır ve şeridi uzatmaz.
+
+    İbre zeminden KOYU olabilir (beyaz kadranda siyah/kırmızı ibre — envanterin
+    varsaydığı durum) ya da AÇIK olabilir (koyu kadranda beyaz ibre — örn.
+    araç göstergeleri). Hangisi olduğu envanterde beyan edilmiyor, biri
+    varsayılırsa öteki türdeki hiçbir gösterge okunamaz. Bu yüzden iki kutbu da
+    dene, ibre imzasına (dar plato = yüksek güven) hangisi daha çok uyuyorsa
+    onu kullan — "cevap makul mü" değil "kanıt hangisinde güçlü" sorusu.
     """
-    dark = _dark_mask(gray, center, radius)
-    if dark is None:
-        return None
+    en_iyi: NeedleReading | None = None
+    for koyu in (True, False):
+        maske = _polarity_mask(gray, center, radius, koyu)
+        if maske is None:
+            continue
+        aday = _polar_from_mask(maske, center, radius)
+        if aday is not None and (en_iyi is None or aday.confidence > en_iyi.confidence):
+            en_iyi = aday
+    return en_iyi
 
-    runs = _radial_runs(dark, center, radius)
+
+def _polar_from_mask(maske: np.ndarray, center: tuple[int, int], radius: float) -> NeedleReading | None:
+    runs = _radial_runs(maske, center, radius)
     if runs.max() <= 0:
         return None
 
@@ -151,13 +166,18 @@ def _read_polar(gray: np.ndarray, center: tuple[int, int], radius: float) -> Nee
     )
 
 
-def _dark_mask(gray: np.ndarray, center: tuple[int, int], radius: float) -> np.ndarray | None:
-    """Kadran yüzünü Otsu ile ikiye ayırır: koyu (ibre/çizgi/yazı) ve zemin.
+def _polarity_mask(gray: np.ndarray, center: tuple[int, int], radius: float,
+                    koyu: bool) -> np.ndarray | None:
+    """Kadran yüzünü Otsu ile ikiye ayırır: ibre adayı ve zemin.
 
     Eşik sabit değil çünkü ibre siyah da olabilir kırmızı da (envanterdeki
     `needle_color`); kırmızının grisi ~91, siyahınki ~20, beyaz yüz 255.
     Otsu'yu bütün kareye değil YALNIZCA kadran yüzüne uygulamak şart: kare
     zemini (gri 140-225) ve bezel (70) eşiği kadranın dışına kaçırır.
+
+    `koyu=True` ibrenin zeminden koyu olduğunu varsayar (`gray < esik`),
+    `koyu=False` açık olduğunu (`gray > esik`) — `_read_polar` ikisini de
+    dener.
     """
     h, w = gray.shape[:2]
     yy, xx = np.ogrid[:h, :w]
@@ -168,7 +188,7 @@ def _dark_mask(gray: np.ndarray, center: tuple[int, int], radius: float) -> np.n
 
     esik, _ = cv2.threshold(pikseller.reshape(-1, 1), 0, 255,
                             cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    return gray < esik
+    return gray < esik if koyu else gray > esik
 
 
 def _radial_runs(dark: np.ndarray, center: tuple[int, int], radius: float) -> np.ndarray:
