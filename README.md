@@ -8,7 +8,10 @@ dijital panelleri, ikaz lambalarını ve vana pozisyonlarını** otomatik okuyup
 modül. Bugün bu işi bir operatör yapıyor: tur atıyor, göstergeleri okuyup not alıyor.
 
 > 📄 Raporlar, iş paketleri ve proje tanımı ayrı repoda: **`akilli-fabrika-staj-2026`**
-> 🔒 Bu repo private ve **fabrika görüntüsü hiçbir koşulda buraya girmez.**
+> 🔒 **Fabrika görüntüsü / videosu hiçbir koşulda buraya girmez.** Bu repo **public**'tir;
+> kural 28.07'de "private repo" varsayımıyla konulmuştu, depo public kaldığı için tek
+> koruma `.gitignore`'dur ve o yüzden kural gevşetilmek yerine sıkılaştırılmıştır:
+> görüntü/video uzantıları dışlanır, `data/` ve `models/` tümüyle depo dışıdır.
 
 ---
 

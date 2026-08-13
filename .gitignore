@@ -63,3 +63,9 @@ desktop.ini
 *.tmp
 tmp/
 scratch/
+
+# --- Yerel bağlam dosyası ---
+# Oturum başında yüklenen proje bağlamı. İçeriği rapor/kod deposunun kendi
+# belgelerinde zaten var; depoda ikinci bir kopya olarak durmasına gerek yok.
+PROJE_BAGLAM.md
+CLAUDE.md
