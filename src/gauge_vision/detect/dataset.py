@@ -22,9 +22,15 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Tek sınıf: kadran yüzü. İP11 (dijital panel) ve İP12 (lamba/vana) kendi
-# sınıflarını getirdiğinde liste büyür; şimdilik sınıf karmaşası yaratmıyoruz.
+# Tek sınıf: kadran yüzü. İP5'in 05.08'de ölçülen üç yapılandırması bunu
+# kullanır ve **değiştirilmemelidir** — `nc` değişirse tespit başlığının boyutu
+# değişir ve o günün mAP'i bugünkü koşuyla karşılaştırılamaz hâle gelir.
 SINIFLAR = ("gauge",)
+
+# Dört tipli küme (17.08 bulgusu: zincir dört tipi okuyor ama tespit yalnız
+# analog kadranı buluyordu). `gauge` bilinçli olarak 0'da bırakıldı: mevcut
+# tek sınıflı etiketler yeniden yazılmadan bu kümeye girebiliyor.
+SINIFLAR_COK = ("gauge", "digital", "lamp", "valve")
 GAUGE_SINIF_ID = 0
 
 IMAGES_DIR = "images"
@@ -162,13 +168,19 @@ def bol(hedef: str | Path, *, val_orani: float = 0.2, seed: int = 0) -> tuple[in
     return len(dagilim["train"]), len(dagilim["val"])
 
 
-def veri_yaml_yaz(yol: str | Path, *, train: Path, val: Path, test: Path | None = None) -> Path:
+def veri_yaml_yaz(yol: str | Path, *, train: Path, val: Path, test: Path | None = None,
+                  siniflar: tuple[str, ...] = SINIFLAR) -> Path:
     """Ultralytics'in beklediği veri tanımı.
 
     Yollar mutlak yazılıyor: eğitim başka bir çalışma dizininden koşturulduğunda
     sessizce boş bir kümeyle eğitmesin. `val` ve `test` bilerek dışarıdan
     veriliyor — üç eğitim yapılandırması (sentetik / gerçek / karışık) **aynı**
     doğrulama ve test kümesini kullanmalı, yoksa sayılar kıyaslanamaz.
+
+    `siniflar` varsayılanı tek sınıftır ve öyle kalmalıdır: İP5'in ölçülmüş üç
+    yapılandırması bu dosyayı yeniden ürettiğinde `nc` sessizce değişirse
+    05.08'in sayıları bugünkü koşuyla karşılaştırılamaz. Dört tipli küme değeri
+    açıkça geçer (`SINIFLAR_COK`).
     """
     yol = Path(yol)
     satirlar = [
@@ -177,7 +189,7 @@ def veri_yaml_yaz(yol: str | Path, *, train: Path, val: Path, test: Path | None 
     ]
     if test is not None:
         satirlar.append(f"test: {Path(test).resolve().as_posix()}")
-    satirlar += [f"nc: {len(SINIFLAR)}", f"names: {list(SINIFLAR)}"]
+    satirlar += [f"nc: {len(siniflar)}", f"names: {list(siniflar)}"]
 
     yol.parent.mkdir(parents=True, exist_ok=True)
     yol.write_text("\n".join(satirlar) + "\n", encoding="utf-8")

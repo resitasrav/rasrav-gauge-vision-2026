@@ -17,6 +17,7 @@ from gauge_vision.detect.dataset import (
     IMAGES_DIR,
     LABELS_DIR,
     SINIFLAR,
+    SINIFLAR_COK,
     sentetik_disa_aktar,
     veri_yaml_yaz,
     yolo_satiri,
@@ -126,3 +127,44 @@ def test_veri_yaml_mutlak_yol_yaziyor(tmp_path):
         deger = next(s.split(": ", 1)[1] for s in icerik.splitlines() if s.startswith(anahtar))
         assert deger.startswith(("/", tmp_path.drive.lower(), tmp_path.drive)), \
             f"{anahtar} göreli yazılmış: {deger}"
+
+
+# ------------------------------------------------------- dört sınıflı küme (13.08) --
+
+def test_tek_sinif_listesi_degismedi():
+    """İP5'in üç yapılandırması tek sınıflıdır ve öyle kalmalıdır.
+
+    `SINIFLAR`'a sınıf eklemek `veri_yaml_yaz`'ın yazdığı `nc`'yi büyütür; İP5'in
+    yapılandırmaları yeniden üretildiğinde tespit başlığı değişir ve 05.08'de
+    ölçülen mAP50 0,967 bugünkü koşuyla **karşılaştırılamaz** hâle gelir. Dört
+    tipli küme ayrı bir sabit kullanır. Bu test o ayrımı koruyor.
+    """
+    assert SINIFLAR == ("gauge",)
+
+
+def test_cok_sinifta_gauge_sifirda_kaliyor():
+    """Geriye dönük uyum: mevcut tek sınıflı etiketler yeniden yazılmadan
+    dört tipli kümeye girebilmeli. `gauge` yer değiştirirse hepsi bozulur."""
+    assert SINIFLAR_COK[0] == "gauge"
+    assert SINIFLAR_COK.index("gauge") == GAUGE_SINIF_ID
+    assert set(SINIFLAR).issubset(SINIFLAR_COK)
+
+
+def test_veri_yaml_sinif_listesini_dinliyor(tmp_path):
+    """`siniflar` geçilmezse tek sınıf, geçilirse verilen liste yazılmalı."""
+    tek = veri_yaml_yaz(tmp_path / "tek.yaml", train=tmp_path / "t", val=tmp_path / "v")
+    assert "nc: 1" in tek.read_text(encoding="utf-8")
+
+    dort = veri_yaml_yaz(tmp_path / "dort.yaml", train=tmp_path / "t", val=tmp_path / "v",
+                         siniflar=SINIFLAR_COK)
+    icerik = dort.read_text(encoding="utf-8")
+    assert "nc: 4" in icerik
+    for ad in SINIFLAR_COK:
+        assert ad in icerik
+
+
+def test_yolo_satiri_sinif_kimligini_yaziyor():
+    """Sınıf kimliği satırın ilk alanıdır; yanlış yazılırsa lamba vana olur."""
+    for kimlik, ad in enumerate(SINIFLAR_COK):
+        satir = yolo_satiri((10, 20, 110, 120), 512, 512, sinif=kimlik)
+        assert satir.split()[0] == str(kimlik), f"{ad} kimliği satıra geçmedi"
