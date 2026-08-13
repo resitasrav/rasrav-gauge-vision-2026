@@ -130,9 +130,11 @@ erişiminin kısıtlandığı anlaşılmaktadır.
 
 **İP8 için üç seçenek:**
 
-1. **A6 (Detect-and-read-meters)** — depo iki Drive dosyası yayımlamaktadır ve ikisi de
-   erişilebilir durumdadır (HTTP 200). Tanıma kümesinde ibre, kadran ve **değer** bilgisi
-   bulunmaktadır. Öncelikli aday hâline gelmiştir; içeriği açılıp doğrulanmalıdır.
+1. ~~**A6 (Detect-and-read-meters)**~~ **13.08'de doğrulandı: veri seti YOK.** Depo
+   README'sinde "Release training code and dataset (after paper release)" maddesi hâlâ
+   işaretsiz — yalnızca çıkarım ağırlıkları (`distro_net.pt`, `textgraph_vgg_450.pth`)
+   yayımlanmış, etiketli görüntü/değer verisi paylaşılmamış. Drive linklerinin HTTP 200
+   dönmesi ağırlık dosyaları içindi, veri seti değil. Aday listeden düşürüldü.
 2. **Kendi gerçek verimizi etiketlemek.** İP13'te zaten masa üstü canlı test yapılacaktır;
    aynı düzenekte bilinen değerlerde fotoğraf çekilerek küçük ama **tam kontrollü** bir
    gerçek küme kurulabilir. Endava'nın kendi değerlendirmesini de bu yolla yaptığı §2.2'de
@@ -176,7 +178,7 @@ açısı veya okunan değer içermez, dolayısıyla İP8'in ihtiyacını karşı
 | Anahtarsız (Hugging Face) | **A9** | ✅ **İndirildi ve İP5'te kullanıldı** (05.08) — 235 gerçek fotoğraf |
 | Kaggle API token | A4 | ✅ Örnek indirildi ve incelendi (31.07). Tam set için token gerekli — HF aynası da mevcut (`KhoaUIT/...`) |
 | Anahtarsız (Google Drive) | A1, A2 | 🔴 **ERİŞİLEMİYOR** — klasör 404 (05.08, bkz. §2.3) |
-| Anahtarsız (Google Drive) | A6 | Bağlantılar erişilebilir (HTTP 200); İP8 adayı olarak açılacak |
+| Anahtarsız (Google Drive) | A6 | 🔴 Bağlantılar erişilebilir ama içerik ağırlık dosyası — veri seti hiç yayımlanmamış (13.08 doğrulandı) |
 | Anahtarsız (GitHub) | A7 | İndirilebilir |
 | Roboflow API anahtarı | A3 | Anahtar bekleniyor — **engelleyici değil**, A9 aynı aileden ve anahtarsız |
 | Kaggle API token | A5 | **İndirilmeyecek** — etiketsiz, 11,9 GB (bkz. §2.2) |
