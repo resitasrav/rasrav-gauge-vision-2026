@@ -10,7 +10,7 @@
 > Ölçülebilir bir soruysa sentetik veride ölçülüp sayıyla gidilir. Detay: rapor
 > deposundaki CLAUDE.md §5b.
 >
-> **Son güncelleme:** 2026-08-07
+> **Son güncelleme:** 2026-08-13
 
 ---
 
@@ -235,7 +235,21 @@ soruyordu, "kanıt var mı" diye değil. Eşik tahminle değil, iki kümenin da�
 "yanıyor mu" diye soruyordu; ×0,15 ışıkta yanan lamba 35'e düşüp **60 kareyi sessizce
 yanlış sınıflandırdı** (arıza lambası "off"). Doğru ölçüt mutlak parlaklık değil çevreye
 göre **kontrasttı** — o oran ışık kazancıyla ölçeklenmez. Aynı hata sınıfı `digital.py`'da
-da çıktı (panel çerçevesi sönük segmentten parlak).
+da çıktı (panel çerçevesi sönük segmentten parlak). **13.08'de üçüncü kez, `needle.py`'da:**
+`_dark_mask` ibrenin zeminden hep koyu olduğunu varsayıyordu; koyu kadranda beyaz ibre
+(araç göstergeleri gibi, kendi envanterimizde yok ama genelleme testinde ortaya çıktı) bu
+varsayımla hiç okunamıyordu. Artık iki kutbu da deneyip ibre imzasına (dar plato) hangisi
+uyuyorsa onu seçiyor — düzeltildi, 230/230 test + `olc_ip6.py` sonucu değişmedi (0,123°).
+
+**🔴 Bulundu, henüz düzeltilmedi (13.08) — `roll.py` yeni kadran stilinde sahte yatıklık
+kestiriyor.** Genelleme testinde (araç hız göstergesi, gerçekte ~0° yatık) `estimate_roll`
+21,3° sahte yatıklık buldu ve doğru ölçülen ibre açısını sessizce yanlış değere kaydırdı
+(`roll_deg=0` zorlanınca doğru değere döndü). Aynı "sentetik kadran stiline göre kalibre
+edilmiş kestirim gerçek/farklı kadranda tutmuyor" sınıfından — İP8'in kendi ölçümünde de
+("yatıklık uyumu bazı karelerde negatif çıkıyor, eşik 0,4") aynı belirti var, muhtemelen
+aynı kök sebep. `roll.MIN_UYUM` güven kapısı muhtemelen "cevap makul mü" değil "kanıt var
+mı" testine göre yeniden kurulmalı (bkz. yukarıdaki refine.py/roll.py dersi). Henüz
+dokunulmadı.
 
 **Envanterdeki her sayısal beyan için o beyanı sınayan bir test olmalı.** Vana
 toleransında envanter ±20° diyordu, kod fiilen ±6° yapıyordu; ikisi de kendi içinde
