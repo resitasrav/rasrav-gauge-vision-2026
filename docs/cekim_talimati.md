@@ -15,12 +15,26 @@
 
 ## 1. Ekranda göstergeleri aç
 
-PowerShell'de, kod reposunun içinde:
+Kod reposunun içinde. **Önce sanal ortamı aç** — açmadan koşarsan
+`ModuleNotFoundError: No module named 'gauge_vision'` alırsın, çünkü paket
+sistem Python'ında değil `.venv` içinde kurulu.
+
+Komut satırı hangisiyse onu kullan:
+
+```bat
+REM Komut İstemi (cmd.exe) — pencere başlığında "Komut İstemi" yazar
+.venv\Scripts\activate
+python scripts\ekran_kadran.py
+```
 
 ```powershell
+# PowerShell — istem "PS C:\..." ile başlar
 .\.venv\Scripts\Activate.ps1
 python scripts\ekran_kadran.py
 ```
+
+Doğru ortamdaysan istemin başında **`(.venv)`** görünür. Görünmüyorsa aktivasyon
+çalışmamıştır, script de çalışmaz.
 
 Ekran tam ekran olur. Ortada gösterge, **altında büyük bir `#01`** görürsün.
 Sıra şöyle akar (terminale de tek tek yazılır):
