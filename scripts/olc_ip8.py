@@ -1,12 +1,21 @@
-r"""Ekrandan çekilmiş fotoğraflarda uçtan uca hata tablosu (İP8).
+r"""Ekrandan çekilmiş fotoğraflarda uçtan uca hata tablosu — dört tip (İP8).
 
-    python scripts\ekran_kadran.py --gosterge PT-101 --adet 12   # once goster+cek
-    python scripts\olc_ip8.py --fotograflar data\real\PT-101_ekran
+    python scripts\ekran_kadran.py                     # once goster+cek (28 kare)
+    python scripts\olc_ip8.py --fotograflar data\real\ip8_ekran
 
-Zincirin **gerçek optik yoldan geçmiş** görüntüdeki hatasını ölçer. Sentetikte
-%0,19 çıkan sayının gerçek mercek, gerçek ışık ve gerçek sensör altında ne
-olduğunu gösterir. Ground truth `ekran_kadran.py`'ın yazdığı manifestten gelir;
-elle etiketleme yok, dolayısıyla etiket hatası da yok (STAJ/SORULAR.md · S1 · A).
+Zincirin **gerçek optik yoldan geçmiş** görüntüdeki hatasını ölçer; artık dört
+gösterge tipinde birden. Sentetikte çıkan sayıların (analog %0,19 · dijital
+%93,3 · lamba/vana %100/%100) gerçek mercek, gerçek ışık ve gerçek sensör
+altında ne olduğunu gösterir. Ground truth `ekran_kadran.py`'ın yazdığı
+manifestten gelir; elle etiketleme yok, dolayısıyla etiket hatası da yok
+(STAJ/SORULAR.md · S1 · A).
+
+Tipe göre ölçülen şey farklıdır ve tek sayıya indirgenmez:
+
+    analog   → tam skala hata yüzdesi (İP8'in asıl hedef metriği)
+    digital  → dizge doğruluğu (İP11 ile aynı ölçüt: hane hane tam eşleşme)
+    lamp     → durum doğruluğu
+    valve    → durum doğruluğu (ara konum karesinde DOĞRU cevap unreadable'dır)
 
 **Eşleştirme çekim sırasına göre, ama sıraya güvenilmiyor.** Fotoğraf sayısı
 manifestteki kare sayısına eşit değilse ölçüm **yapılmıyor**: bir kare atlanmış
@@ -18,11 +27,15 @@ karşılaştırmak on saniye sürüyor.
 
 **Neyi ölçmez.** Ekranda cam yansıması, metal doku, tozlanma ve gerçek sanayi
 aydınlatması yok. Bu tablo "sahada ne olur"u değil, "gerçek optik yol zincire ne
-kadar hata katıyor"u söyler. Gerçek manometre hâlâ B seçeneğidir.
+kadar hata katıyor"u söyler. Ayrıca dijital/lamba/vana modelleri kendi sentetik
+üretecimizin çıktısıyla eğitildi; ekrandaki görüntü de o üreteçten geliyor, yani
+bu ölçüm "başka marka bir panele genelleme"yi DEĞİL, optik yolun katkısını
+ölçer. Gerçek panel/lamba fotoğrafı hâlâ ayrı bir iştir (S1 · B seçeneği).
 """
 
 from __future__ import annotations
 
+import sys
 import argparse
 import json
 import re
@@ -40,18 +53,29 @@ VARSAYILAN_MANIFEST = "outputs/metrics/ip8_ekran_manifest.json"
 METRIK_YOLU = "outputs/metrics/ip8_ekran_hatasi.json"
 KONTAK_YOLU = "outputs/figures/ip8_kontak_sayfasi.png"
 # Sentetik ölçümler — gerçek sayı bunların yanına konmadan anlam kazanmıyor.
-SENTETIK_ZINCIR_YUZDE = 0.19      # 07.08, data/synthetic/v1
+SENTETIK_REFERANS = {
+    "analog": {"zincir_yuzde": 0.19,           # 07.08, data/synthetic/v1
+               "benzetilmis_cekim_yuzde": 0.697},  # 19.08, İP8 benzetilmiş 12 kare
+    "digital": {"dizge_dogrulugu": 0.933},     # İP11
+    "lamp": {"dogruluk": 1.0},                 # İP12
+    "valve": {"dogruluk": 1.0},                # İP12
+}
 KONTAK_SUTUN = 4
 KONTAK_HUCRE = 320
+# İP5+ dört sınıflı model (13.08). Varsayılan tespit bu: analogda merkez
+# rafinesi kutu hatasını düzeltebiliyor ama dijital/lamba/vanada öyle bir
+# geometrik düzeltme yok — panelin fotoğraf içindeki yerini yalnız tespit
+# bulabilir. Zaten İP8 "uçtan uca" diyor; tespit zincirin parçasıdır.
+COK_SINIF_AGIRLIK = Path("runs/detect/models/ip5/cok_sinif/weights/best.pt")
 
 
 class _TumKare:
     """Tespit yerine tüm kareyi kutu veren yer tutucu.
 
-    Ekran fotoğrafında kadran karenin çoğunu kaplar; YOLO'nun sentetik kadran
-    üzerinde eğitilmiş modeli ekran görüntüsünde henüz sınanmadı. `--tespitsiz`
-    ile tespit atlanıp yalnızca OKUMA zincirinin hatası ölçülebilsin diye var —
-    tespit hatası ile okuma hatası aynı sayıya karışmasın.
+    Ekran fotoğrafında gösterge karenin çoğunu kaplar; YOLO'nun sentetik veri
+    üzerinde eğitilmiş modeli ekran görüntüsünde henüz sınanmadı. `--agirlik`
+    verilmeyince tespit atlanıp yalnızca OKUMA zincirinin hatası ölçülsün diye
+    var — tespit hatası ile okuma hatası aynı sayıya karışmasın.
     """
 
     class _Kutular:
@@ -106,9 +130,20 @@ def fotograflari_bul(klasor: Path) -> tuple[list[Path], list[str]]:
     return sorted(yollar), uyarilar
 
 
-def kontak_sayfasi(yollar: list[Path], kayitlar: list[dict], birim: str,
+def beklenen_metni(k: dict, gauges: dict) -> str:
+    """Karenin ground truth'unun insan-okur hâli (kontak sayfası + tablo)."""
+    tip = k.get("type", "analog")
+    if tip == "analog":
+        birim = gauges[k["gauge_id"]].unit or ""
+        return f"{k['value']:g} {birim}".strip()
+    if tip == "digital":
+        return k["text"].strip() if "text" in k else f"{k['value']:g}"
+    return k["beklenen"]
+
+
+def kontak_sayfasi(yollar: list[Path], kayitlar: list[dict], gauges: dict,
                    cikti: Path) -> None:
-    """Her fotoğrafı atanan değeriyle birlikte tek sayfada dizer.
+    """Her fotoğrafı atanan ground truth'uyla birlikte tek sayfada dizer.
 
     Kaymayı gözle yakalamak için: fotoğrafın içindeki #NN ile buradaki sıra
     numarası uyuşmuyorsa eşleşme bozuktur ve tablo çöpe gider.
@@ -126,7 +161,7 @@ def kontak_sayfasi(yollar: list[Path], kayitlar: list[dict], birim: str,
         r, s = divmod(i, KONTAK_SUTUN)
         y0, x0 = r * KONTAK_HUCRE, s * KONTAK_HUCRE
         sayfa[y0:y0 + kucuk.shape[0], x0:x0 + kucuk.shape[1]] = kucuk
-        cv2.putText(sayfa, f"#{k['sira']:02d}  {k['value']:g} {birim}",
+        cv2.putText(sayfa, f"#{k['sira']:02d}  {beklenen_metni(k, gauges)}",
                     (x0 + 8, y0 + KONTAK_HUCRE - 12), cv2.FONT_HERSHEY_SIMPLEX,
                     0.6, (0, 255, 255), 2, cv2.LINE_AA)
 
@@ -134,58 +169,117 @@ def kontak_sayfasi(yollar: list[Path], kayitlar: list[dict], birim: str,
     cv2.imwrite(str(cikti), sayfa)
 
 
-def olc(yollar: list[Path], kayitlar: list[dict], gauge, model, conf: float,
-        *, perspektif: bool = False) -> list[dict]:
-    """Her fotoğrafı okur, ground truth ile karşılaştırır.
+def _degerlendir(satir: dict, okuma, k: dict, gauge) -> None:
+    """Okumayı ground truth ile tipe göre karşılaştırır, `satir`'ı doldurur.
 
-    `perspektif` bir ablasyon anahtarıdır. Ekrandan çekimde kamera kadrana dik
-    duramıyor — ekran masada, fotoğrafçı ayakta — dolayısıyla eğiklik burada
-    sentetikteki gibi bir "eksen" değil, işin doğasında var. Düzeltmenin gerçek
-    fotoğrafta ne kazandırdığı ancak açık/kapalı iki koşu yan yana konunca
-    görülür (İP14'te sentetikte ölçülmüştü; gerçek görüntüde ilk kez burada).
+    Neden tek "hata %" sütunu yok: dizgede ve durumda "yüzde hata" tanımsızdır.
+    Analogda sürekli hata ölçülür; diğer üçünde ikili doğru/yanlış — İP11 ve
+    İP12'nin ölçütleriyle aynı kalsın ki sentetik sayılarla kıyas anlamlı olsun.
     """
-    aralik = gauge.scale.max - gauge.scale.min
-    satirlar = []
+    tip = k.get("type", "analog")
+    okunamadi = okuma is None or okuma.value is None
 
+    if okunamadi:
+        satir.update({"durum": "unreadable",
+                      "conf": round(float(okuma.conf), 4) if okuma else 0.0})
+        # Ara konum vanası gibi karelerde doğru cevap okumamaktır (6. kural).
+        if k.get("beklenen") == "unreadable":
+            satir["dogru"] = True
+        elif tip != "analog":
+            satir["dogru"] = False
+        return
+
+    satir.update({"durum": okuma.status, "conf": round(float(okuma.conf), 4)})
+
+    if tip == "analog":
+        aralik = gauge.scale.max - gauge.scale.min
+        hata = abs(float(okuma.value) - k["value"])
+        satir.update({"okunan": round(float(okuma.value), 4),
+                      "hata": round(hata, 4),
+                      "hata_yuzde": round(100.0 * hata / aralik, 4)})
+    elif tip == "digital":
+        # İP11'in ölçütü: hane hane TAM eşleşme. 0,1 birim sapmış bir okuma
+        # "yaklaşık doğru" değil yanlıştır — panelde öyle bir sayı yazmıyor.
+        decimals = int((gauge.digits or {}).get("decimals", 1))
+        okunan_metin = f"{float(okuma.value):.{decimals}f}"
+        satir.update({"okunan": okunan_metin,
+                      "dogru": okunan_metin == k["text"].strip()})
+    else:  # lamp / valve
+        satir.update({"okunan": str(okuma.value),
+                      "dogru": (k["beklenen"] != "unreadable"
+                                and str(okuma.value) == k["beklenen"])})
+
+
+def olc(yollar: list[Path], kayitlar: list[dict], gauges: dict, model,
+        conf: float, *, perspektif: bool = False) -> list[dict]:
+    """Her fotoğrafı tipine göre okur, ground truth ile karşılaştırır.
+
+    `perspektif` bir ablasyon anahtarıdır ve yalnız analog dalını etkiler.
+    Ekrandan çekimde kamera göstergeye dik duramıyor — ekran masada, fotoğrafçı
+    ayakta — dolayısıyla eğiklik burada sentetikteki gibi bir "eksen" değil,
+    işin doğasında var. Düzeltmenin gerçek fotoğrafta ne kazandırdığı ancak
+    açık/kapalı iki koşu yan yana konunca görülür.
+    """
+    satirlar = []
     for yol, k in zip(yollar, kayitlar):
         img = cv2.imread(str(yol))
+        satir = {**k, "dosya": yol.name}
         if img is None:
-            satirlar.append({**k, "dosya": yol.name, "durum": "okunamadi",
-                             "sebep": "goruntu acilamadi"})
+            satir.update({"durum": "okunamadi", "sebep": "goruntu acilamadi"})
+            satirlar.append(satir)
             continue
 
+        gauge = gauges[k["gauge_id"]]
         sonuc = read_gauge(img, model, gauge, detect_conf=conf,
                            perspektif=perspektif)
-        okuma = sonuc.reading
-        satir = {**k, "dosya": yol.name}
-
-        if okuma is None or okuma.value is None:
-            # Okunamayan kare hata ortalamasına GİRMEZ ama kapsama düşer.
-            # İkisini karıştırmak, eşiği yükselterek "hata"yı iyileştirmeyi
-            # mümkün kılardı; o bir ölçüm değil, ölçümün kandırılmasıdır.
-            satir.update({"durum": "unreadable",
-                          "conf": round(float(okuma.conf), 4) if okuma else 0.0,
-                          "sebep": getattr(sonuc, "reason", None)})
-        else:
-            hata = abs(float(okuma.value) - k["value"])
-            satir.update({"durum": okuma.status,
-                          "okunan": round(float(okuma.value), 4),
-                          "conf": round(float(okuma.conf), 4),
-                          "hata": round(hata, 4),
-                          "hata_yuzde": round(100.0 * hata / aralik, 4)})
+        _degerlendir(satir, sonuc.reading, k, gauge)
+        if satir.get("durum") == "unreadable" and getattr(sonuc, "reason", ""):
+            satir["sebep"] = sonuc.reason
         satirlar.append(satir)
     return satirlar
 
 
+def ozetle(satirlar: list[dict]) -> dict:
+    """Tip bazında özet istatistikler — her tip kendi ölçütüyle."""
+    tipler: dict[str, dict] = {}
+
+    analog = [s for s in satirlar if s.get("type", "analog") == "analog"]
+    if analog:
+        okunan = [s for s in analog if "hata_yuzde" in s]
+        hatalar = np.array([s["hata_yuzde"] for s in okunan])
+        blok = {"kare": len(analog), "okunan": len(okunan),
+                "kapsama": round(len(okunan) / len(analog), 4),
+                "referans": SENTETIK_REFERANS["analog"]}
+        if hatalar.size:
+            from dataclasses import asdict
+            blok["hata"] = {k: round(float(v), 4)
+                            for k, v in asdict(error_stats(hatalar)).items()}
+        tipler["analog"] = blok
+
+    for tip in ("digital", "lamp", "valve"):
+        grup = [s for s in satirlar if s.get("type") == tip]
+        if not grup:
+            continue
+        dogru = sum(1 for s in grup if s.get("dogru"))
+        tipler[tip] = {"kare": len(grup), "dogru": dogru,
+                       "dogruluk": round(dogru / len(grup), 4),
+                       "referans": SENTETIK_REFERANS[tip]}
+    return tipler
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description="İP8 — ekrandan çekim ölçümü")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    ap = argparse.ArgumentParser(description="İP8 — ekrandan çekim ölçümü (dört tip)")
     ap.add_argument("--fotograflar", required=True, type=Path)
     ap.add_argument("--manifest", type=Path, default=Path(VARSAYILAN_MANIFEST))
     ap.add_argument("--agirlik", type=Path, default=None,
-                    help="YOLO ağırlığı; verilmezse tespit atlanır")
+                    help=f"YOLO ağırlığı (varsayılan: {COK_SINIF_AGIRLIK} varsa o)")
+    ap.add_argument("--tespitsiz", action="store_true",
+                    help="tespiti atla, tüm kareyi kutu say — tespit hatası ile "
+                         "okuma hatasını ayırmak için ablasyon")
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--perspektif", action=argparse.BooleanOptionalAction,
-                    default=False, help="elips→daire düzleştirme (İP14)")
+                    default=False, help="elips→daire düzleştirme (İP14, analog)")
     ap.add_argument("--cikti", type=Path, default=Path(METRIK_YOLU))
     ap.add_argument("--kontak", type=Path, default=Path(KONTAK_YOLU))
     args = ap.parse_args()
@@ -195,11 +289,17 @@ def main() -> int:
         return 1
     if not args.manifest.exists():
         print(f"HATA: manifest yok — {args.manifest}\n"
-              f"Önce: python scripts\\ekran_kadran.py --gosterge <ID>")
+              f"Önce: python scripts\\ekran_kadran.py")
         return 1
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     kayitlar = manifest["kareler"]
+    # Eski (tek gösterge, yalnız analog) manifest de okunabilsin: tip ve
+    # gauge_id kare kaydında yoksa üst seviyeden gelir.
+    for k in kayitlar:
+        k.setdefault("gauge_id", manifest.get("gauge_id"))
+        k.setdefault("type", "analog")
+
     yollar, uyarilar = fotograflari_bul(args.fotograflar)
     for u in uyarilar:
         print(f"UYARI: {u}\n")
@@ -214,51 +314,56 @@ def main() -> int:
             print(f"  {i:02d}  {y.name}")
         return 1
 
-    gauge = load_gauges()[manifest["gauge_id"]]
-    if args.agirlik:
-        from ultralytics import YOLO
-        model, tespit = YOLO(str(args.agirlik)), "YOLO"
-    else:
+    gauges = load_gauges()
+    agirlik = args.agirlik or (COK_SINIF_AGIRLIK if COK_SINIF_AGIRLIK.exists()
+                               else None)
+    if args.tespitsiz or agirlik is None:
         model, tespit = _TumKare(), "yok (tum kare)"
+        if agirlik is None and not args.tespitsiz:
+            print(f"UYARI: {COK_SINIF_AGIRLIK} bulunamadı — tespitsiz ölçülüyor. "
+                  f"Dijital/lamba/vana kareleri sıkı çekilmediyse okunamayabilir.\n")
+    else:
+        from ultralytics import YOLO
+        model, tespit = YOLO(str(agirlik)), f"YOLO ({agirlik})"
 
-    print(f"{gauge.id} · {len(yollar)} fotoğraf · tespit: {tespit}\n")
-    satirlar = olc(yollar, kayitlar, gauge, model, args.conf,
+    print(f"{len(yollar)} fotoğraf · tespit: {tespit}\n")
+    satirlar = olc(yollar, kayitlar, gauges, model, args.conf,
                    perspektif=args.perspektif)
-    kontak_sayfasi(yollar, kayitlar, gauge.unit or "", args.kontak)
+    kontak_sayfasi(yollar, kayitlar, gauges, args.kontak)
 
-    okunan = [s for s in satirlar if "hata_yuzde" in s]
-    hatalar = np.array([s["hata_yuzde"] for s in okunan]) if okunan else np.array([])
-
-    print("| # | gercek | okunan | hata % | conf | durum |")
-    print("|---|---|---|---|---|---|")
+    print("| # | gosterge | beklenen | okunan | sonuc | conf | durum |")
+    print("|---|---|---|---|---|---|---|")
     for s in satirlar:
-        print(f"| {s['sira']:02d} | {s['value']:g} | "
-              f"{s.get('okunan', '—')} | {s.get('hata_yuzde', '—')} | "
-              f"{s.get('conf', '—')} | {s['durum']} |")
+        if s.get("type", "analog") == "analog":
+            sonuc = f"%{s['hata_yuzde']:g}" if "hata_yuzde" in s else "—"
+        else:
+            sonuc = {True: "dogru", False: "YANLIS"}.get(s.get("dogru"), "—")
+        print(f"| {s['sira']:02d} | {s['gauge_id']} | "
+              f"{beklenen_metni(s, gauges)} | {s.get('okunan', '—')} | "
+              f"{sonuc} | {s.get('conf', '—')} | {s['durum']} |")
 
+    tipler = ozetle(satirlar)
     ozet = {
-        "gauge_id": gauge.id,
         "kaynak": str(args.fotograflar),
         "tespit": tespit,
         "kare": len(satirlar),
-        "okunan": len(okunan),
-        "kapsama": round(len(okunan) / len(satirlar), 4) if satirlar else 0.0,
-        "sentetik_referans_yuzde": SENTETIK_ZINCIR_YUZDE,
+        "tipler": tipler,
         "satirlar": satirlar,
     }
-    if hatalar.size:
-        from dataclasses import asdict
-        ozet["hata"] = {k: round(float(v), 4)
-                        for k, v in asdict(error_stats(hatalar)).items()}
 
-    print(f"\nKapsama: {ozet['okunan']}/{ozet['kare']} "
-          f"(%{100 * ozet['kapsama']:.1f})")
-    if hatalar.size:
-        print(f"Ortalama hata: %{hatalar.mean():.3f} · p95 %{np.percentile(hatalar, 95):.3f} "
-              f"· en kotu %{hatalar.max():.3f}")
-        print(f"Sentetik referans (07.08): %{SENTETIK_ZINCIR_YUZDE}")
-    else:
-        print("Hicbir kare okunamadi — hata istatistigi uretilmedi.")
+    print()
+    for tip, blok in tipler.items():
+        if tip == "analog":
+            h = blok.get("hata")
+            print(f"analog : kapsama {blok['okunan']}/{blok['kare']}"
+                  + (f" · ort %{h['mean']:.3f} · p95 %{h['p95']:.3f} "
+                     f"· en kotu %{h['max']:.3f}" if h else " · hic kare okunamadi")
+                  + f"  [sentetik %{blok['referans']['zincir_yuzde']} · "
+                    f"benzetilmis %{blok['referans']['benzetilmis_cekim_yuzde']}]")
+        else:
+            ref = next(iter(blok["referans"].values()))
+            print(f"{tip:<7}: {blok['dogru']}/{blok['kare']} dogru "
+                  f"(%{100 * blok['dogruluk']:.1f})  [sentetik %{100 * ref:.1f}]")
 
     args.cikti.parent.mkdir(parents=True, exist_ok=True)
     args.cikti.write_text(json.dumps(ozet, ensure_ascii=False, indent=2),
