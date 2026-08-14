@@ -304,12 +304,42 @@ def main() -> int:
     for u in uyarilar:
         print(f"UYARI: {u}\n")
 
-    if len(yollar) != len(kayitlar):
-        # Sessizce kırpıp devam etmek en tehlikeli seçenek olurdu: eşleşme
-        # kayar, sayılar makul görünür, tablo yanlış olur.
+    # --- Eşleştirme: SIRA değil, dosya adındaki KARE NUMARASI ---
+    #
+    # Sıraya dayalı eşleştirme, eksik kare olduğunda bir kayar ve komşu kareler
+    # birbirine yakın değerler taşıdığı için **sayılar makul görünmeye devam
+    # eder**. Bu yüzden eskiden sayım tutmuyorsa ölçüm hiç yapılmıyordu; ama o
+    # da 23 geçerli kareyi 5 eksik yüzünden çöpe atmak demekti.
+    #
+    # Doğrusu: her fotoğrafın adı taşıdığı kare numarasına göre manifestteki
+    # kaydına bağlanır. Eksik kare artık **eksik kalır**, kaymaya yol açmaz;
+    # hangilerinin eksik olduğu tabloya ve JSON'a yazılır. Ad numara taşımıyorsa
+    # eski katı davranış sürer — orada kayma riski gerçekten var.
+    numaralar = {}
+    for p in yollar:
+        bulunan = re.findall(r"\d+", p.stem)
+        if len(bulunan) == 1:
+            numaralar[p] = int(bulunan[0])
+
+    kayit_no = {int(k.get("sira", i + 1)): k for i, k in enumerate(kayitlar)}
+    ada_gore = len(numaralar) == len(yollar) and set(numaralar.values()) <= set(kayit_no)
+
+    if ada_gore:
+        yollar = sorted(yollar, key=lambda p: numaralar[p])
+        kayitlar = [kayit_no[numaralar[p]] for p in yollar]
+        eksik = sorted(set(kayit_no) - set(numaralar.values()))
+        if eksik:
+            print(f"NOT: {len(yollar)}/{len(kayit_no)} kare var. Eksik: "
+                  f"{', '.join(f'#{n:02d}' for n in eksik)}\n"
+                  f"Eşleştirme dosya adındaki numaraya göre yapıldı, sıraya "
+                  f"göre değil — eksik kareler kaymaya yol açmaz.\n")
+    elif len(yollar) != len(kayitlar):
         print(f"HATA: {len(yollar)} fotoğraf var, manifest {len(kayitlar)} kare "
-              f"bekliyor.\nEşleştirme sıraya dayanıyor; sayılar tutmadan ölçüm "
-              f"yapılmaz. Fazla/eksik kareyi düzeltip tekrar koşturun.")
+              f"bekliyor ve dosya adlarından kare numarası çıkarılamadı.\n"
+              f"Eşleştirme sıraya düşüyor; sayılar tutmadan ölçüm yapılmaz — "
+              f"bir kare atlanırsa eşleşme kayar ve sayılar makul görünmeye "
+              f"devam eder.\nDosyaları kare numarasıyla adlandırın (01.jpg, "
+              f"02.jpg …) ya da eksiği tamamlayın.")
         for i, y in enumerate(yollar, start=1):
             print(f"  {i:02d}  {y.name}")
         return 1
