@@ -177,3 +177,39 @@ def test_ozet_tip_basina_referans_tasiyor(satirlar):
     for tip in ("digital", "lamp", "valve"):
         assert tipler[tip]["dogruluk"] == 1.0, (tip, tipler[tip])
         assert "referans" in tipler[tip]
+
+
+# ------------------------------------------- ekrana gömme: daire daire kalmalı --
+
+def test_ekrana_gom_en_boy_oranini_koruyor():
+    """Tam ekran gösterim kareyi ESNETMEMELİ.
+
+    Bu testin sebebi ölçülmüş bir arızadır: `cv2.WINDOW_NORMAL` tam ekranda
+    görüntüyü pencereye yayıyordu ve 900×1010'luk kare 1920×1080'e taşınırken
+    yatayda 2,00 kat geriliyordu. Kadran, fotoğraf çekilmeden önce ekranda
+    elipse dönüşüyordu — İP8'in ölçtüğü şeyin ta kendisi bozuluyordu.
+    """
+    from ekran_kadran import ekrana_gom
+
+    # Daire orta gri: letterbox dolgusu BEYAZ olduğu için beyaz bir daire
+    # dolguyla karışır ve test tuvalin tamamını ölçer (ilk yazımda bu oldu).
+    kare = np.zeros((1010, 900, 3), np.uint8)
+    cv2.circle(kare, (450, 450), 300, (128, 128, 128), -1)
+
+    ekran = ekrana_gom(kare, 1920, 1080)
+    assert ekran.shape[:2] == (1080, 1920)
+
+    gri = cv2.cvtColor(ekran, cv2.COLOR_BGR2GRAY)
+    ys, xs = np.where((gri > 100) & (gri < 160))
+    en = xs.max() - xs.min()
+    boy = ys.max() - ys.min()
+    assert abs(en - boy) <= 2, f"daire elipse dönmüş: en {en} px, boy {boy} px"
+
+
+def test_ekrana_gom_tasirma_yapmiyor():
+    """İçerik ekran sınırlarının dışına taşmamalı; taşarsa #NN şeridi kaybolur."""
+    from ekran_kadran import ekrana_gom
+
+    for ek_en, ek_boy in ((1920, 1080), (1366, 768), (1080, 1920)):
+        cikti = ekrana_gom(np.zeros((1010, 900, 3), np.uint8), ek_en, ek_boy)
+        assert cikti.shape[:2] == (ek_boy, ek_en)

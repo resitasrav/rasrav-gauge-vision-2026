@@ -149,6 +149,50 @@ def vana_plani(gauge) -> list[dict]:
     return plan
 
 
+def ekran_boyutu(varsayilan: tuple[int, int] = (1920, 1080)) -> tuple[int, int]:
+    """Fiziksel ekran çözünürlüğü (en, boy). Bulunamazsa varsayılan döner."""
+    try:
+        import ctypes
+        u = ctypes.windll.user32           # type: ignore[attr-defined]
+        u.SetProcessDPIAware()             # ölçeklenmiş ekranda gerçek piksel
+        en, boy = u.GetSystemMetrics(0), u.GetSystemMetrics(1)
+        return (en, boy) if en > 0 and boy > 0 else varsayilan
+    except Exception:
+        return varsayilan
+
+
+def ekrana_gom(kare: np.ndarray, ekran_en: int, ekran_boy: int) -> np.ndarray:
+    """Kareyi ekran oranına **en-boy koruyarak** gömer (letterbox).
+
+    Neden gerekli: `cv2.WINDOW_NORMAL` tam ekranda görüntüyü pencereye
+    **yayar**, oranı korumaz. 900×1010'luk kare 1920×1080'lik ekrana
+    taşındığında yatayda 2,00 kat geriliyordu — yani kadran, fotoğraf daha
+    çekilmeden ekranda elipse dönüşüyordu. Bu, İP8'in ölçtüğü şeyin ta
+    kendisini bozar: açı okuma dairesellik varsayar, 2 kat gerilmiş bir
+    kadranda gerçek açı θ, görüntüde atan(tan(θ)/2) olarak görünür.
+
+    Belirti olarak 19.08 çekiminde de görüldü ama yanlış teşhis edildi
+    ("uzak ve eğik çekim"): merkez rafinesi 12 karenin 11'inde kanıt
+    kapısından döndü ve yatıklık uyumu gürültü bölgesinde kaldı — ikisi de
+    dairesel olmayan bir kadranın beklenen sonucudur.
+
+    Kenar boşluğu, karenin kendi zemin rengiyle değil **beyazla** doldurulur:
+    ekranın kendi kenarı zaten oradadır, ayrıca tespit için içeriğin sınırının
+    belli olması iyidir.
+    """
+    h, w = kare.shape[:2]
+    olcek = min(ekran_en / w, ekran_boy / h)
+    yeni = (max(1, int(round(w * olcek))), max(1, int(round(h * olcek))))
+    kucuk = cv2.resize(kare, yeni, interpolation=cv2.INTER_AREA
+                       if olcek < 1 else cv2.INTER_CUBIC)
+
+    tuval = np.full((ekran_boy, ekran_en, 3), 255, np.uint8)
+    y0 = (ekran_boy - yeni[1]) // 2
+    x0 = (ekran_en - yeni[0]) // 2
+    tuval[y0:y0 + yeni[1], x0:x0 + yeni[0]] = kucuk
+    return tuval
+
+
 def _serit_ekle(icerik: np.ndarray, sira: int, boyut: int) -> np.ndarray:
     """İçeriğin altına #NN şeridini ekler."""
     serit_h = int(boyut * SERIT_ORANI)
@@ -304,6 +348,12 @@ def main() -> int:
     cv2.namedWindow(PENCERE, cv2.WINDOW_NORMAL)
     if args.tam_ekran:
         cv2.setWindowProperty(PENCERE, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        # Kareler ekran oranına GÖMÜLÜYOR, esnetilmiyor. Bkz. `ekrana_gom`:
+        # WINDOW_NORMAL tam ekranda görüntüyü pencereye yayar ve 900×1010'luk
+        # kareyi 1920×1080'e taşırken yatayda 2 kat geriyor — kadran ekranda
+        # zaten elips oluyor, fotoğraf daha çekilmeden.
+        ekran = ekran_boyutu()
+        kareler = [ekrana_gom(k, *ekran) for k in kareler]
 
     i = 0
     while True:
