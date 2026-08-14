@@ -44,32 +44,21 @@ SENTETIK_GURULTU_MAX = 0.176  # rastgele gürültüde en yüksek uyum
 
 
 def _roll_ic_sayilari(image, merkez, yaricap, gauge) -> dict | None:
-    """`estimate_roll`'un kapıya takılmadan önceki iç sayıları."""
-    olculen = RL.measured_tick_profile(image, merkez, yaricap)
-    if olculen is None:
+    """`estimate_roll`'un kapıya takılmadan önceki iç sayıları.
+
+    Hesap `roll.roll_evidence`'tan geliyor — eskiden burada bir kopyası vardı
+    ve roll.py'daki her değişiklikte sessizce bayatlayacaktı (13.08'de ikinci
+    tepe araması tüm çembere genişleyince bayatladı da). Kopya silindi.
+    """
+    kanit = RL.roll_evidence(image, merkez, yaricap, gauge)
+    if kanit is None:
         return None
-    beklenen = RL.cached_tick_profile(gauge)
-    skor = RL._dairesel_korelasyon(olculen, beklenen)
-
-    n = skor.size
-    sinir = int(round(RL.MAX_ROLL_DEG / RL.STEP_DEG))
-    adaylar = np.concatenate([np.arange(0, sinir + 1), np.arange(n - sinir, n)])
-    en_iyi = int(adaylar[np.argmax(skor[adaylar])])
-
-    komsuluk = max(2, int(round(2 * RL.TICK_SIGMA_DEG / RL.STEP_DEG)))
-    uzak = adaylar[np.minimum(np.abs(adaylar - en_iyi),
-                              n - np.abs(adaylar - en_iyi)) > komsuluk]
-    ikinci = float(skor[uzak].max()) if uzak.size else 0.0
-    tepe = float(skor[en_iyi])
-
-    norm = (np.linalg.norm(olculen - olculen.mean())
-            * np.linalg.norm(beklenen - beklenen.mean()))
-    roll = RL._tepe_ince_ayar(skor, en_iyi, RL.STEP_DEG)
     return {
-        "uyum": round(float(tepe / norm) if norm > 0 else 0.0, 4),
-        "tepe_orani": round(tepe / max(ikinci, 1e-9), 3) if ikinci > 0 else None,
-        "roll_deg": round((roll + 180.0) % 360.0 - 180.0, 2),
-        "kontrast": round(float(olculen.max() - olculen.min()), 1),
+        "uyum": round(kanit.match, 4),
+        "ayriklik": round(kanit.separation, 4),
+        "roll_deg": round(kanit.roll_deg, 2),
+        "kuresel_tepe_deg": round(kanit.global_best_deg, 1),
+        "kontrast": round(kanit.contrast, 1),
     }
 
 

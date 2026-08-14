@@ -106,7 +106,7 @@ def test_ibre_kestirimi_etkilemiyor(gauges, deger_orani):
 def test_karekok_kadran_daha_ayrik_tepe_veriyor(gauges):
     """FI-310'un çizgileri eşit aralıklı değil; desen kendini tekrar etmez.
 
-    Beklenen: karekök kadranda tepe oranı doğrusal kadrandan yüksek. Bu bir
+    Beklenen: karekök kadranda tepe ayrıklığı doğrusal kadrandan yüksek. Bu bir
     doğruluk testi değil, tasarım gerekçesinin ölçümle tutup tutmadığının
     kontrolü — tutmasaydı belirsizlik kapısının eşiği yeniden düşünülmeliydi.
     """
@@ -120,7 +120,7 @@ def test_karekok_kadran_daha_ayrik_tepe_veriyor(gauges):
     e_kk = estimate_roll(img_kk, (256, 256), 205.0, kk)
     e_dg = estimate_roll(img_dg, (256, 256), 205.0, dg)
     assert e_kk is not None and e_dg is not None
-    assert e_kk.peak_ratio > e_dg.peak_ratio
+    assert e_kk.separation > e_dg.separation
 
 
 # ------------------------------------------------------- bulamayınca susmak --
@@ -146,6 +146,33 @@ def test_yanlis_gosterge_kimligi_yakalaniyor(gauges):
     """
     img, _ = _kare(gauges["PT-101"], deger=5.0, roll=3.0)
     assert estimate_roll(img, (256, 256), 205.0, gauges["FI-310"]) is None
+
+
+def test_yabanci_kadran_stilinde_yatiklik_uydurulmuyor(gauges):
+    """Tanınmayan kadran stilinde SAHTE yatıklık üretilmemeli (13.08 vakası).
+
+    Gerçek vaka: araç hız göstergesinde (gerçekte ~0° yatık) `estimate_roll`
+    21,3° yatıklık uydurdu ve doğru ölçülmüş ibre açısını sessizce yanlış
+    değere kaydırdı. Sebep: uyum kapısı "desen buraya oturuyor mu" diye
+    soruyordu, "YALNIZCA buraya mı oturuyor" diye değil — eşit aralıklı
+    yabancı bir çizgi halkası birçok kaymada benzer skor verir ve en iyisi
+    rastgele bir kaymadır.
+
+    Burada aynı arıza sınıfı en yalın hâliyle üretiliyor: tam çember boyunca
+    eşit aralıklı 60 çizgi (saat/hız göstergesi düzeni). Desen PT-101'inkine
+    hiçbir özgün kaymada oturmaz; kestirim SUSMALI.
+    """
+    g = gauges["PT-101"]
+    img = np.full((512, 512, 3), 235, dtype=np.uint8)
+    import cv2
+    for i in range(60):
+        aci = np.radians(i * 6.0)
+        r1, r2 = (205 * 0.86, 205 * 1.0) if i % 5 == 0 else (205 * 0.93, 205 * 1.0)
+        p1 = (int(256 + r1 * np.cos(aci)), int(256 - r1 * np.sin(aci)))
+        p2 = (int(256 + r2 * np.cos(aci)), int(256 - r2 * np.sin(aci)))
+        cv2.line(img, p1, p2, (30, 30, 30), 3, cv2.LINE_AA)
+
+    assert estimate_roll(img, (256, 256), 205.0, g) is None
 
 
 def test_duz_zeminde_kestirim_uretilmiyor(gauges):

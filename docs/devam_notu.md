@@ -87,6 +87,7 @@ Hepsi sentetik dağılımlara göre kalibre edildi ve kod içinde ⚠ ile işare
 |---|---|---|
 | `MAX_ARTIK_ORANI`, `MAX_YAYILMA_ORANI` | `detect/refine.py` | merkez rafinesi kanıt kalitesi |
 | `MIN_UYUM` | `read/roll.py` | yatıklık deseni uyumu |
+| `MIN_AYRIKLIK` | `read/roll.py` | **en dar paylı kapı** — sentetik doğru kümenin min'i 0,112, eşik 0,10. Gerçek fotoğrafta ayrıklık bu bandın altına düşerse yatıklık kestirimi susar (güvenli ama kapsama kaybı) |
 | `MIN_EKSEN_ORANI`, `MAX_ARTIK_ORANI` | `detect/perspective.py` | elips kabul kapıları |
 | `LAMBA_PARLAKLIK_ORANI` | `read/state.py` | lamba yanık/sönük ayrımı |
 | `conf_threshold: 0.70` | `configs/gauges.yaml` | **İP15 gerçek veriyle yeniden koşmalı** |

@@ -66,18 +66,8 @@ TICK_SIGMA_DEG = 1.5
 
 MIN_KONTRAST = 0.02        # halkada çizgi hiç görünmüyorsa kestirim üretilmez
 
-# --- İki kapı: biri GÖRELİ, biri MUTLAK ---
+# --- İki kapı: biri MUTLAK, biri AYRIKLIK ---
 #
-# Tepe / ikinci en iyi tepe oranı: aynı desene iki farklı kaymada eşit iyi
-# oturuluyorsa (eşit aralıklı kadranda periyodiklik) hangisinin doğru olduğu
-# bilinemez. Ölçülen dağılımlar (06.08):
-#   gerçek kadran  min 1,18 · medyan 1,68 · max 6,94
-#   gürültü        min 1,01 · medyan 1,21 · max 6,16
-# **Bu kapı gürültüyü AYIRT ETMİYOR** — dağılımlar iç içe. Yine de duruyor,
-# çünkü koruduğu şey farklı bir arıza: iki kaymanın yarışması. Gürültüyü
-# aşağıdaki uyum kapısı eliyor.
-MIN_TEPE_ORANI = 1.08
-
 # Tepedeki normalize korelasyon — desen GERÇEKTEN tutuyor mu. Ölçülen dağılımlar:
 #   gerçek kadran     min 0,629 · medyan 0,724 · max 0,804
 #   rastgele gürültü  min 0,012 · medyan 0,099 · max 0,176
@@ -89,6 +79,37 @@ MIN_TEPE_ORANI = 1.08
 # yatıklık kestirimi susar. Yanlış kimliğin sessizce yanlış değer üretmesine
 # karşı elimizdeki tek otomatik işaret budur.
 MIN_UYUM = 0.40
+
+# ⚠ 13.08'in bulgusu: uyum kapısı TEK BAŞINA "kanıt var mı" sorusunu sormuyor.
+# Tanımadığımız bir kadran stili (araç hız göstergesi) çizgi halkası taşıdığı
+# için beklenen desenle 0,40'ın ÜSTÜNDE korelasyon üretebiliyor — ama desen ona
+# BENZEDİĞİ için değil, "çember üstünde çizgiler" olduğu için: eşit aralıklı
+# yabancı desen birçok kaymada benzer skor verir ve en iyisi rastgele bir
+# kaymadır (ölçülen vaka: gerçekte ~0° yatık panelde 21,3° sahte yatıklık).
+# Kanıt, desenin YALNIZCA tek bir kaymada oturmasıdır. Bunu ayrıklık ölçer:
+#
+#   ayriklik = (tepe - tepe komşuluğu DIŞINDAKİ küresel en iyi skor) / norm
+#
+# İkinci tepe araması eskiden ±MAX_ROLL_DEG penceresinin İÇİNDEydi; yabancı
+# desen pencerenin dışında daha da iyi oturuyorsa görünmüyordu bile. Artık tüm
+# çember taranıyor — desen başka bir kaymada eşit oturuyorsa fark sıfıra düşer
+# ve kestirim susar. Eşik `scripts/olc_roll_kaniti.py` ile ölçülen dağılımlardan
+# (13.08 · 146 kare · outputs/metrics/roll_kaniti.json):
+#   gerçek kadran (doğru kimlik, ±15° yatık)  min 0,112 · medyan 0,147
+#   rastgele gürültü                          max 0,036
+#   yanlış gösterge kimliği                   max 0,024
+#   yabancı stil (saat düzeni + araç paneli)  max 0,012
+# 0,10 aradaki boşlukta ve bilinçli olarak gerçek kümenin dibine yakın: sahte
+# kestirim (yanlış yöne düzeltme) kestirimsizlikten (roll=0) daha tehlikeli,
+# şüphe aleyhte kullanılıyor. Aynı koşuda eski kapının yabancı stilde 26 karenin
+# 6'sında sahte kestirim ürettiği, yenisinin 0 ürettiği ölçüldü; doğru kümede
+# yatıklık hatası değişmedi (ortanca 0,023° · max 0,075°).
+MIN_AYRIKLIK = 0.10
+
+# Eski tepe/ikinci ORAN kapısı kaldırıldı (13.08): ölçülen dağılımları zaten iç
+# içeydi (gerçek min 1,18 · gürültü medyan 1,21) ve koruduğu "iki kaymanın
+# yarışması" arızasını ayrıklık kapısı mutlak ölçekte, tüm çemberde ölçüyor.
+# İki kapı aynı soruyu sorunca zayıf olanı yanlış bir güven kaynağı oluyordu.
 
 
 @dataclass(frozen=True)
@@ -103,9 +124,27 @@ class RollEstimate:
 
     roll_deg: float
     confidence: float
-    peak_ratio: float      # en iyi tepe / ikinci en iyi tepe (GÖRELİ ayrıklık)
     match: float           # tepedeki normalize korelasyon (MUTLAK uyum, -1..1)
-    contrast: float        # ölçülen çizgi deseninin genliği
+    separation: float      # tepe - komşuluk dışı küresel en iyi (normalize fark)
+    contrast: float
+
+
+@dataclass(frozen=True)
+class RollEvidence:
+    """Kapılar uygulanmadan ÖNCEKİ iç sayılar.
+
+    İki tüketicisi var: `estimate_roll` (kapıları bunun üstüne uygular) ve
+    teşhis/ölçüm scriptleri (`tani_ip8.py`, `olc_roll_kaniti.py` — kapıya
+    takılan karelerin NEDEN takıldığını görmek ve eşikleri dağılımdan seçmek
+    için). Teşhis tarafı eskiden bu hesabın bir kopyasını taşıyordu; kopya,
+    buradaki bir değişiklikte sessizce bayatlayacaktı.
+    """
+
+    roll_deg: float        # pencere içi en iyi kayma (ince ayarlı, ±180)
+    match: float           # tepedeki normalize korelasyon
+    separation: float      # (tepe - komşuluk dışı KÜRESEL en iyi) / norm
+    contrast: float
+    global_best_deg: float # tüm çemberdeki en iyi kaymanın yeri (teşhis için)
 
 
 def expected_tick_profile(gauge: Gauge, step_deg: float = STEP_DEG) -> np.ndarray:
@@ -207,7 +246,7 @@ def _tepe_ince_ayar(skor: np.ndarray, k: int, step_deg: float) -> float:
     return (k + np.clip(kayma, -1.0, 1.0)) * step_deg
 
 
-def estimate_roll(
+def roll_evidence(
     image: np.ndarray,
     center: tuple[int, int],
     radius: float,
@@ -215,12 +254,11 @@ def estimate_roll(
     *,
     max_roll_deg: float = MAX_ROLL_DEG,
     beklenen: np.ndarray | None = None,
-) -> RollEstimate | None:
-    """Kadranın çizgilerinden kamera yatıklığını kestirir.
+) -> RollEvidence | None:
+    """Yatıklık kestiriminin KANIT sayılarını üretir; kapı uygulamaz.
 
-    Kestirim belirsizse None döner; çağıran yatıklığı 0 kabul eder. `beklenen`
-    önceden hesaplanmış desen verilirse yeniden üretilmez (aynı gösterge için
-    sabittir, saha döngüsünde her karede hesaplamaya gerek yok).
+    None yalnızca sayı üretilemediğinde döner (profil yok, kontrast yok);
+    "kanıt zayıf" burada elenmez — o karar `estimate_roll`'un eşiklerine ait.
     """
     if gauge.scale is None:
         return None
@@ -243,39 +281,76 @@ def estimate_roll(
 
     n = skor.size
     sinir = int(round(max_roll_deg / STEP_DEG))
-    # Aranan aralık: 0'ın iki yanı (negatif yatıklık dizinin sonundan sarar).
+    # Kestirim alanı: 0'ın iki yanı (negatif yatıklık dizinin sonundan sarar).
+    # Platform kadranı kabaca dik gördüğü için gerçek yatıklık bu pencerededir;
+    # pencere dışı da kanıt aramasına dahildir (aşağıda).
     adaylar = np.concatenate([np.arange(0, sinir + 1), np.arange(n - sinir, n)])
     en_iyi = int(adaylar[np.argmax(skor[adaylar])])
-
-    # İkinci tepe: en iyinin komşuluğu dışındaki en yüksek skor. Aynı tümseğin
-    # yamacı "rakip" sayılırsa oran hep 1'e yakın çıkar ve kapı hiç çalışmaz.
-    komsuluk = max(2, int(round(2 * TICK_SIGMA_DEG / STEP_DEG)))
-    uzak = adaylar[np.minimum(np.abs(adaylar - en_iyi), n - np.abs(adaylar - en_iyi)) > komsuluk]
-    ikinci = float(skor[uzak].max()) if uzak.size else 0.0
-
     tepe = float(skor[en_iyi])
-    if tepe <= 0:
+
+    # İkinci tepe: en iyinin komşuluğu dışındaki, TÜM ÇEMBERDEKİ en yüksek
+    # skor. Komşuluk dışlanıyor çünkü aynı tümseğin yamacı "rakip" değildir.
+    # Arama pencereyle SINIRLANMIYOR: yabancı bir desen 40°'de daha iyi
+    # oturuyorsa bu, penceredeki tepenin kanıt olmadığının ta kendisidir —
+    # pencere içinde aransaydı görünmezdi (13.08'in sahte yatıklık vakası).
+    komsuluk = max(2, int(round(2 * TICK_SIGMA_DEG / STEP_DEG)))
+    mesafe = np.arange(n)
+    mesafe = np.minimum(np.abs(mesafe - en_iyi), n - np.abs(mesafe - en_iyi))
+    uzak = mesafe > komsuluk
+    ikinci = float(skor[uzak].max()) if uzak.any() else 0.0
+    kuresel = int(np.argmax(skor))
+
+    norm = (np.linalg.norm(olculen - olculen.mean())
+            * np.linalg.norm(beklenen - beklenen.mean()))
+    if norm <= 0:
         return None
-    oran = tepe / max(ikinci, 1e-9) if ikinci > 0 else float("inf")
-
-    # Normalize korelasyon: tepenin MUTLAK uyumu. Tepe oranı yalnızca "en iyi
-    # kayma ikinciden ne kadar iyi" der ve gürültüde de tesadüfen yüksek çıkar
-    # (06.08: 10 gürültü karesinin 8'i oran kapısını geçiyordu). Bu sayı ise
-    # ölçülen desenin beklenene gerçekten benzeyip benzemediğini söyler.
-    norm = np.linalg.norm(olculen - olculen.mean()) * np.linalg.norm(beklenen - beklenen.mean())
-    uyum = tepe / norm if norm > 0 else 0.0
-
-    if uyum < MIN_UYUM or oran < MIN_TEPE_ORANI:
-        return None      # desen tutmuyor ya da belirsiz — düzeltme yapılmaz
+    uyum = tepe / norm
+    ayriklik = (tepe - ikinci) / norm
 
     roll = _tepe_ince_ayar(skor, en_iyi, STEP_DEG)
     roll = (roll + 180.0) % 360.0 - 180.0
-    if abs(roll) > max_roll_deg:
+    kuresel_deg = (kuresel * STEP_DEG + 180.0) % 360.0 - 180.0
+    return RollEvidence(roll_deg=float(roll), match=float(uyum),
+                        separation=float(ayriklik), contrast=kontrast,
+                        global_best_deg=float(kuresel_deg))
+
+
+def estimate_roll(
+    image: np.ndarray,
+    center: tuple[int, int],
+    radius: float,
+    gauge: Gauge,
+    *,
+    max_roll_deg: float = MAX_ROLL_DEG,
+    beklenen: np.ndarray | None = None,
+) -> RollEstimate | None:
+    """Kadranın çizgilerinden kamera yatıklığını kestirir.
+
+    Kestirim belirsizse None döner; çağıran yatıklığı 0 kabul eder. `beklenen`
+    önceden hesaplanmış desen verilirse yeniden üretilmez (aynı gösterge için
+    sabittir, saha döngüsünde her karede hesaplamaya gerek yok).
+
+    İki kapı, iki ayrı soru:
+      uyum     ≥ MIN_UYUM      desen bu kaymada GERÇEKTEN oturuyor mu
+      ayrıklık ≥ MIN_AYRIKLIK  YALNIZCA bu kaymada mı oturuyor
+    İkincisi olmadan ilki "cevap makul mü"den öteye geçmiyordu: yabancı bir
+    kadran stili uyumu geçip rastgele bir kaymaya kilitlenebiliyordu (13.08).
+    """
+    kanit = roll_evidence(image, center, radius, gauge,
+                          max_roll_deg=max_roll_deg, beklenen=beklenen)
+    if kanit is None:
+        return None
+    if kanit.match < MIN_UYUM or kanit.separation < MIN_AYRIKLIK:
+        return None      # desen tutmuyor ya da tek kaymaya özgü değil
+    if abs(kanit.roll_deg) > max_roll_deg:
         return None
 
     # Güven iki kapının ikisine birden bakar: desen tutuyor mu VE tepe ayrık mı.
     # Tek başına hiçbiri yetmiyor; çarpım en zayıf halkayı öne çıkarır.
-    g_uyum = np.clip((uyum - MIN_UYUM) / (1.0 - MIN_UYUM), 0.0, 1.0)
-    g_oran = 1.0 if not np.isfinite(oran) else np.clip(1.0 - MIN_TEPE_ORANI / oran, 0.0, 1.0)
-    return RollEstimate(roll_deg=float(roll), confidence=float(g_uyum * g_oran),
-                        peak_ratio=float(oran), match=float(uyum), contrast=kontrast)
+    g_uyum = np.clip((kanit.match - MIN_UYUM) / (1.0 - MIN_UYUM), 0.0, 1.0)
+    g_ayrik = np.clip((kanit.separation - MIN_AYRIKLIK) / (0.5 - MIN_AYRIKLIK),
+                      0.0, 1.0)
+    return RollEstimate(roll_deg=kanit.roll_deg,
+                        confidence=float(g_uyum * g_ayrik),
+                        match=kanit.match, separation=kanit.separation,
+                        contrast=kanit.contrast)
