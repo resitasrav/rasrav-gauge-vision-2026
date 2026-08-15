@@ -38,6 +38,41 @@ KUTU_YARICAP_ORANI = 1 / 1.07
 # göre alınan yarıçap kadranın dışını tarar.
 MIN_YARICAP_PX = 12
 
+# Tespit sınıfı → envanterdeki gösterge tipi. Dört sınıflı model (İP5
+# genişletmesi) bu adları kullanır; tek sınıflı eski ağırlıklarda yalnız
+# `gauge` vardır ve eşleme yine doğru çalışır.
+SINIF_TIP: dict[str, str] = {
+    "gauge": "analog", "digital": "digital", "lamp": "lamp", "valve": "valve",
+}
+
+
+def _tipe_uyan_kutular(sonuc, gauge: Gauge):
+    """`gauge.type` ile uyuşan kutuların indisleri, güvene göre azalan.
+
+    **Neden sınıf filtresi gerekli.** Zincir eskiden karedeki EN GÜVENLİ kutuyu
+    alıp beyan edilen göstergeymiş gibi okuyordu. Dört sınıflı model gelince bu
+    sessiz bir hata kaynağı oldu: bir ikaz lambası, bir dijital panelden yüksek
+    güvenle çıkabilir ve zincir lambanın kırpımını 7-segment çözücüye verir.
+    Ölçülen örnek (14.08, üretilmiş panel videosu): aynı karede `digital`,
+    `lamp` ve yanlış pozitif `valve` kutuları birlikte bulunuyor.
+
+    Sınıf filtresi **kimlik doğrulaması değildir** ve öyle sunulmamalı: tipin
+    doğru olması, kutunun beyan edilen GÖSTERGE olduğunu göstermez. Bir
+    termometre de `gauge` sınıfındadır. Kimlik, robotun durağından beyanla
+    gelir (U11) — 14.08'de yatıklık kanıtının kimlik ayrımı yapıp yapamadığı
+    ölçüldü ve YAPAMADIĞI görüldü (doğru kimlik medyan ayrıklık 0,011; yanlış
+    kimlik -0,103; dağılımlar örtüşüyor).
+    """
+    adlar = getattr(sonuc, "names", None) or {}
+    kutular = sonuc.boxes
+    sira = sorted(range(len(kutular)),
+                  key=lambda i: float(kutular.conf[i]), reverse=True)
+    if len(adlar) <= 1:
+        return sira
+    uyan = [i for i in sira
+            if SINIF_TIP.get(adlar.get(int(kutular.cls[i]), ""), "") == gauge.type]
+    return uyan
+
 
 @dataclass(frozen=True)
 class FrameResult:
@@ -87,6 +122,42 @@ def _kirp(image: np.ndarray, kutu, pay: float = KIRPIM_PAYI) -> np.ndarray:
                  max(0, int(x1 - dx)):min(w, int(x2 + dx))]
 
 
+@dataclass(frozen=True)
+class Tespit:
+    """Karedeki tek bir nesne — okunmadan önce, yalnız TİP düzeyinde."""
+
+    box_xyxy: tuple[float, float, float, float]
+    conf: float
+    sinif: str          # modelin sınıf adı: gauge | digital | lamp | valve
+    tip: str            # envanter tipi karşılığı: analog | digital | lamp | valve
+
+
+def detect_objects(image: np.ndarray, model, *, conf: float = 0.25) -> list[Tespit]:
+    """Karedeki bütün göstergeleri TİPİYLE döndürür — hiçbirini okumadan.
+
+    `read_gauge` bir göstergeyi okur ve okumak için o göstergenin envanterdeki
+    kalibrasyonuna ihtiyaç duyar. Ama karede envanterde olmayan göstergeler de
+    bulunur ve onları görmezden gelmek yanıltıcıdır: 14.08 demosunda karede iki
+    kadran varken ekranda tek kutu görünüyordu ve karşılaştırma haksız çıkıyordu.
+
+    Bu yol tam olarak "sistemin dürüstçe bilebildiği kadarını" verir: karede ne
+    var ve **ne tipte**. Hangi GÖSTERGE olduğunu söylemez — bunu görüntüden
+    çıkarmak ölçümle denendi ve olmadığı görüldü (bkz. `_tipe_uyan_kutular`).
+    """
+    sonuc = model.predict(image, conf=conf, verbose=False)[0]
+    adlar = getattr(sonuc, "names", None) or {}
+    kutular = sonuc.boxes
+    cikti = []
+    for i in range(len(kutular)):
+        ad = adlar.get(int(kutular.cls[i]), "gauge") if adlar else "gauge"
+        cikti.append(Tespit(
+            box_xyxy=tuple(float(v) for v in kutular.xyxy[i].tolist()),
+            conf=float(kutular.conf[i]), sinif=ad,
+            tip=SINIF_TIP.get(ad, "bilinmiyor")))
+    cikti.sort(key=lambda t: t.conf, reverse=True)
+    return cikti
+
+
 def read_gauge(
     image: np.ndarray,
     model,
@@ -121,7 +192,11 @@ def read_gauge(
     if len(sonuc.boxes) == 0:
         return _bos("gösterge bulunamadı")
 
-    en_iyi = int(sonuc.boxes.conf.argmax())
+    uyan = _tipe_uyan_kutular(sonuc, gauge)
+    if not uyan:
+        return _bos(f"karede {gauge.type} tipinde gösterge yok")
+
+    en_iyi = uyan[0]
     kutu = tuple(float(v) for v in sonuc.boxes.xyxy[en_iyi].tolist())
     tespit_guveni = float(sonuc.boxes.conf[en_iyi])
     kesit = _kirp(image, kutu)
@@ -184,9 +259,14 @@ def read_frame(
     if len(sonuc.boxes) == 0:
         return _bos("gösterge bulunamadı")
 
-    # En güvenli kutu: karede birden çok gösterge olabilir, zincir tek gösterge okur.
-    # Hangisinin okunacağı saha döngüsünde robotun durağıyla belirlenecektir (U11).
-    en_iyi = int(sonuc.boxes.conf.argmax())
+    # En güvenli UYUMLU kutu: karede birden çok gösterge olabilir, zincir tek
+    # gösterge okur. Sınıfı beyan edilen tiple uyuşmayan kutular elenir; hangi
+    # göstergenin okunacağı saha döngüsünde robotun durağıyla belirlenir (U11).
+    uyan = _tipe_uyan_kutular(sonuc, gauge)
+    if not uyan:
+        return _bos(f"karede {gauge.type} tipinde gösterge yok")
+
+    en_iyi = uyan[0]
     kutu = tuple(float(v) for v in sonuc.boxes.xyxy[en_iyi].tolist())
     tespit_guveni = float(sonuc.boxes.conf[en_iyi])
 

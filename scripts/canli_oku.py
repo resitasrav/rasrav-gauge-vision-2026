@@ -40,6 +40,40 @@ CIKTI_DIZINI = "outputs/figures"
 RENK_OK = (60, 200, 60)
 RENK_UYARI = (40, 40, 220)
 RENK_BILGI = (40, 40, 40)
+RENK_OKUNMAYAN = (150, 150, 150)   # tespit edildi ama beyan edilen gösterge değil
+
+# Ekranda tip adları: sınıf adı teknik, izleyene tipin ne olduğu söylenmeli.
+TIP_ETIKETI = {"analog": "analog kadran", "digital": "dijital panel",
+               "lamp": "ikaz lambasi", "valve": "vana kolu"}
+
+
+def tespitleri_ciz(kare, tespitler, okunan_kutu=None) -> None:
+    """Karedeki BÜTÜN göstergeleri tipiyle kutular; okunanı dışarıda bırakır.
+
+    **Neden gerekli.** 14.08 demosunda karede iki kadran varken ekranda tek kutu
+    görünüyordu: zincir tek gösterge okur, çizim de yalnız onu gösteriyordu.
+    Dışarıdan bakan "tespit yalnız birini buluyor" sanıyordu — oysa tespit
+    hepsini buluyor, okuma bilerek tek göstergeye bakıyor.
+
+    Okunmayanlar GRİ ve "okunmuyor" etiketiyle çiziliyor. Renk farkı bilinçli:
+    yeşil/kırmızı kutu bir OKUMA beyanıdır, gri kutu yalnızca "burada şu tipte
+    bir şey var" der. Sayı uydurulmadığı gibi, uydurulmuş gibi de görünmemeli.
+    """
+    for t in tespitler:
+        x1, y1, x2, y2 = (int(v) for v in t.box_xyxy)
+        if okunan_kutu is not None and abs(x1 - int(okunan_kutu[0])) < 3 \
+                and abs(y1 - int(okunan_kutu[1])) < 3:
+            continue
+        cv2.rectangle(kare, (x1, y1), (x2, y2), RENK_OKUNMAYAN, 2)
+        etiket = TIP_ETIKETI.get(t.tip, t.sinif)
+        # Etiket kutunun ÜSTÜNE sığmıyorsa İÇİNE yazılır. Dışarı taşarsa
+        # karenin en üstüne düşer ve okuma satırlarıyla üst üste biner —
+        # ölçülen değer ile "okunmuyor" yazısının karışması, bu çizimin
+        # önlemek için var olduğu yanılgının ta kendisidir.
+        y_etiket = y1 - 8 if y1 - 8 >= 14 else min(y2 - 8, y1 + 22)
+        cv2.putText(kare, f"{etiket} {t.conf:.2f} - okunmuyor",
+                    (x1 + 4, y_etiket), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    RENK_OKUNMAYAN, 2, cv2.LINE_AA)
 
 
 class _TespitYok:
