@@ -1,147 +1,113 @@
 # Devam Notu — Oturum Kapanışı
 
-**Yazıldığı an:** 14.08.2026 · Gün 15/30 · H3 kapandı
+**Yazıldığı an:** 21.08.2026 · Gün 20/30 · H4 kapandı
 **Amaç:** Yeni oturum bu dosyayı okuyunca kaldığı yerden devam edebilsin.
-Durum özeti CLAUDE.md'de; **burada yalnızca "sırada ne var ve neye dikkat et" var.**
+Durum özeti bağlam dosyasında; **burada yalnızca "sırada ne var ve neye dikkat et" var.**
 
 > 👉 **Reşit'in bakması gerekenler ayrı dosyada:** `..\..\SORULAR.md`
-> (ana STAJ klasörü altında, **git'e girmiyor** — uyuşmazlık defteriyle aynı yerde.
-> Karar defteri kişiseldir; kod deposunda durması gerekmez.)
-> 1 engelleyici karar (İP8 veri kaynağı), 4 varsayım onayı, 6 bilgi notu.
+> (ana STAJ klasörü altında, **git'e girmiyor** — uyuşmazlık defteriyle aynı yerde.)
 
 ---
 
 ## 1. Nerede kaldık
 
-**On iş paketi bitti: İP1-İP7, İP10, İP11, İP12, İP14, İP15.**
-Kalan: İP8 (engelli), İP9, İP13, İP16.
+**İP8 kapandı — hedef gerçek görüntüde sağlandı.** Kalan: İP9 (kırpılabilir), İP16.
 
 | İP | Ölçüm | Dosya |
 |---|---|---|
-| Zincir (analog) | **%0,19** tam skala | `outputs/metrics/ip8_zincir_hatasi.json` |
-| İP14 zor koşullar | 5 eksen × 5 seviye | `outputs/metrics/ip14_zor_kosullar.json` |
-| İP15 güven eşiği | **0,70** · kapsama %88,1 | `outputs/metrics/ip15_guven_esigi.json` |
-| İP11 dijital panel | **%93,3** dizge | `outputs/metrics/ip11_dijital.json` |
-| İP12 lamba/vana | **%100 / %100** | `outputs/metrics/ip12_lamba_vana.json` |
-| İP10 MQTT | **12/12** şema uyumlu | `outputs/mqtt/*.jsonl` |
+| **İP8 analog — GERÇEK fotoğraf** | **%0,373** · kapsama 10/10 · hedef %5 | `outputs/metrics/ip8_ekran_hatasi.json` |
+| İP8 lamba — gerçek fotoğraf | **4/4 (%100)** | aynı dosya |
+| İP8 vana — gerçek fotoğraf | 2/4 · ara konum doğru `unreadable` | aynı dosya |
+| İP8 dijital — gerçek fotoğraf | **0/5** · sessiz hata 0 | `outputs/metrics/ip8_dijital_tani.json` |
+| Zincir (analog, sentetik) | %0,21 tam skala | `outputs/metrics/ip8_zincir_hatasi.json` |
+| İP15 güven eşiği | 0,70 · kapsama %88,1 | `outputs/metrics/ip15_guven_esigi.json` |
+| İP11 dijital panel (sentetik) | %93,3 dizge | `outputs/metrics/ip11_dijital.json` |
+| İP12 lamba/vana (sentetik) | %100 / %100 | `outputs/metrics/ip12_lamba_vana.json` |
+| İP10 MQTT | 12/12 şema uyumlu | `outputs/mqtt/*.jsonl` |
+| Zincir hızı (1080p, RTX 4050) | 95,6 ms/kare — 10,5 kare/s | YOLO 28,6 + okuma 67,0 |
 
-**221/221 test geçiyor. İki repo da temiz. Arka planda koşan bir şey yok.**
-
----
-
-## 2. Sıradaki iş — İP13: canlı masa üstü test (H4)
-
-**Neden bu:** dört gösterge tipinin dördü de ayrı ayrı çalışıyor ama **hiçbiri
-zincire bağlı değil.** `pipeline.read_frame` yalnızca analog okuyor; dijital,
-lamba ve vana kendi fonksiyonlarından çağrılıyor. İP13 bunları tek bir akışta
-birleştirmeli.
-
-**Ne yapacak:**
-
-```
-kare → YOLO tespiti → gauge_id (waypoint'ten, şimdilik elle)
-     → tipe göre dallan:
-         analog  → refine → perspektif → roll → needle → read_value
-         digital → read_digital
-         lamp    → read_state
-         valve   → read_state
-     → publish/reading.ReadingPublisher
-```
-
-**Hazır parçalar — yenisini yazma:**
-
-- `gauge_vision.pipeline.read_frame` — analog dalı (mevcut)
-- `gauge_vision.read.digital.read_digital(image, gauge)`
-- `gauge_vision.read.state.read_state(image, gauge)`
-- `gauge_vision.publish.reading.ReadingPublisher` — broker yoksa dosyaya yazar
-- `scripts/canli_oku.py` — kamera döngüsü ve çizim zaten var
-
-**İP11 için bir iş burada kapanıyor:** dijital hane ızgarası şu an görüntüden
-kuruluyor ve eksi işaretinde tökezliyor. Zincire bağlanınca **İP5'in panel
-kutusundan** kurulabilir — hane sayısı envanterde yazılı, kutu tespitten
-geliyor. `read_digital`'a bir `roi` parametresi yeterli.
-
-**Tasarım kararı (verildi):** gösterge kimliği hâlâ elle/waypoint'ten gelecek
-(U11 açık). Yanlış kimliğe karşı tek otomatik işaret, yatıklık kestiriminin
-susmasıdır (`roll.MIN_UYUM`, ölçülen ayrım 0,22 vs 0,63).
+**247/247 test geçiyor. İki repo da temiz.**
 
 ---
 
-## 3. Sonraki üç iş
+## 2. Sıradaki iş — dijital panelin gerçek fotoğrafta okunması
 
-1. **İP8 — gerçek görüntü.** 🔴 Ground truth kaynağı kararına bağlı, bkz.
-   SORULAR.md S1. Önerilen A seçeneği yarım gün sürer.
-2. **İP9 — CNN alternatifi.** *(kırpılabilir)* GPU hazır, sentetik veri hazır,
-   ground truth bedava. İbre açısını regresyonla kestirip kutupsal taramayla
-   kıyaslamak. Kıyas tablosu K3'ün (03.08) formatını izlemeli.
-3. **KT2 — ekip şema onayı.** Kod tarafı hazır (`schema: 1`, doğrulayıcı, 20
-   test). U1-U3 kararı gelince değişiklik gerekmeyecek.
+**Neden bu:** dört tipin üçü gerçek optik yolda çalışıyor, dijital çalışmıyor.
+Teşhis bitti ve tespit suçsuz: panel **0,954** güvenle tam yerinden bulunuyor,
+kutu bir hanenin üstüne düştüğünde rakam **1,000 güvenle DOĞRU** çözülüyor.
+Çöken adım **hane kutusu bulma** (5/5).
 
----
+**Sebep:** `read/digital.py::_segment_maskesi` zeminin panel boyunca sabit
+olduğunu varsayıyor (iki kademeli Otsu). Gerçek fotoğrafta ekranda yansıma
+gradyanı var — sol üçte birin zemin medyanı sağın **1,53-1,65 katı** ve bu fark,
+zemin ile sönük segment arasındaki farktan büyük.
 
-## 4. Gerçek görüntüye geçilince YENİDEN ÖLÇÜLECEK eşikler
+**⚠ ÖNCE ŞUNU OKU: üç düzeltme denendi ve ÖLÇÜMLE ELENDİ.** Sayıları
+`scripts/tani_dijital.py` içinde duruyor, aynı yolu ikinci kez deneme:
 
-Hepsi sentetik dağılımlara göre kalibre edildi ve kod içinde ⚠ ile işaretli:
+| Deneme | Sonuç |
+|---|---|
+| Gauss ile zemin çıkarma | 0/5 — haneler bulanığa karışıyor |
+| Sütun bazında zemin kestirimi | 0/5 — gradyanı düzeltiyor, kutu sorunu sürüyor |
+| Renklilik kanalı (max-min) | 0/5 **ve #18'de yanlış haneyi 1,000 güvenle üretiyor** |
 
-| Sabit | Dosya | Ne için |
-|---|---|---|
-| `MAX_ARTIK_ORANI`, `MAX_YAYILMA_ORANI` | `detect/refine.py` | merkez rafinesi kanıt kalitesi |
-| `MIN_UYUM` | `read/roll.py` | yatıklık deseni uyumu |
-| `MIN_AYRIKLIK` | `read/roll.py` | **en dar paylı kapı** — sentetik doğru kümenin min'i 0,112, eşik 0,10. Gerçek fotoğrafta ayrıklık bu bandın altına düşerse yatıklık kestirimi susar (güvenli ama kapsama kaybı) |
-| `MIN_EKSEN_ORANI`, `MAX_ARTIK_ORANI` | `detect/perspective.py` | elips kabul kapıları |
-| `LAMBA_PARLAKLIK_ORANI` | `read/state.py` | lamba yanık/sönük ayrımı |
-| `conf_threshold: 0.70` | `configs/gauges.yaml` | **İP15 gerçek veriyle yeniden koşmalı** |
+**Yapılacak iki iş:**
 
----
+1. **Panelin dörtgen köşelerinden perspektif düzeltmesi.**
+   `detect/perspective.py` yalnız dairesel kadranı düzeltiyor; dikdörtgen panel
+   için yolu yok. Fotoğraflarda panel belirgin yamuk.
+2. **Hane ızgarasını görüntüden değil TESPİT kutusundan kur.** İP5 panelin
+   kutusunu veriyor, hane sayısı envanterde yazılı (`digits.count`), dolayısıyla
+   ızgara doğrudan kurulabilir. `read/digital.py` bunu zaten kendi yorumunda
+   kalıcı çözüm diye işaret ediyor (satır ~241).
 
-## 5. Tuzaklar — zaman kaybettirenler
-
-- **"Kapı" yazmak kapı kurmak değildir.** `refine.py` ve `roll.py`'ın ilk güven
-  kapıları rastgele gürültüyü kabul ediyordu (50/50 ve 8/10). Kapılar "cevap
-  makul mü" diye soruyordu, "kanıt var mı" diye değil. **Yeni kapı yazınca sahte
-  girdiyle sınamadan bitmiş sayma.**
-- **Mutlak eşik = gizli hata.** Lamba okuması `V > 90` ile karar veriyordu;
-  ×0,15 ışıkta yanan lamba 35'e düşüp **60 kareyi sessizce yanlış sınıflandırdı**.
-  Doğru ölçüt çevreye göre kontrasttı. Aynı sınıf hata `digital.py`'da da çıktı.
-- **Envanter ile kod sessizce ayrışabilir.** Vana toleransında envanter ±20°
-  diyordu, kod ±6° yapıyordu. İkisi de kendi içinde tutarlı olduğu için hiçbir
-  birim testi yakalamadı. **Her sayısal beyan için o beyanı sınayan test yaz.**
-- **Düz tarama tablosu sonuç değil uyarıdır.** İP15'in ilk kalibrasyonu daireseldi
-  (eşik zaten uygulanmış veriyle kalibrasyon). Bir tarama hiçbir şey
-  değiştirmiyorsa önce ölçüm düzeneğine bak.
-- **`_haneleri_bul` gibi filtrelerde ölçüt yanlış boyut olabilir.** Ondalık
-  noktayı elemek için YÜKSEKLİK filtresi kullanmak yatay segmentleri de siler
-  (hane kutusu 71 px yerine 19 px çıktı). İki boyutun büyüğüne bak.
-- **torch tekerleği.** RTX 4050 + `cu126` kurulu. `pip install torch` PyPI'dan
-  **CPU** sürümünü getirir ve **sessizce çalışır, sadece kartı kullanmaz.**
-  `torch.cuda.is_available()` ile doğrula. Fark: eğitim 45 dk → 5 dk.
-- **Ultralytics çıktı yolu.** `project="models/ip5"` verilse bile `runs_dir` öne
-  ekleniyor → gerçek yol `runs/detect/models/ip5/...`.
-- **Veri sızıntısı.** Zincir ölçümü `v1` (tohum 1) üzerinde koşar; `v0`'ın 53
-  karesi karışık eğitimin içindeydi. Yeni ölçüm kümesi üretirken `--ozet` ver.
-- **PowerShell + dosya kodlaması.** `Set-Content` ile Türkçe içeren markdown
-  dosyasını yeniden yazma — mojibake üretiyor. Edit aracını kullan.
-- **PowerShell + git commit.** Mesajda çift tırnak varsa argüman bölünüyor.
-  Uzun mesajı dosyaya yazıp `git commit -F dosya` ile ver.
-- **Uyuşmazlık defteri git'e girmez.** `STAJ\ortak uyusmazliklar\uyusmazliklar.md`
-  yereldir, iki reponun da dışındadır.
-- **Raporlar staj iş gününe göre tarihlenir**, dosyanın yazıldığı güne göre değil.
+**Ölçüm:** `python scripts\olc_ip8.py --fotograflar data\real\ip8_ekran`
+Hedef: dijital 0/5 → en az 3/5, **sessiz hata 0 kalmak şartıyla.**
 
 ---
 
-## 6. Bu oturumda yapılanlar (özet)
+## 3. Neye dikkat et
 
-- **`synth/degrade.py`** — beş eksenli zor koşul üreteci; ground truth
-  bozulmayla birlikte taşınıyor
-- **`detect/perspective.py`** — elips→daire düzleştirme (K2); 40°'de p95
-  13,44 → 4,97
-- **İP14** — koşul bazlı tablo; **eğiklik tek başına baskın**, düşük ışık ve
-  JPEG neredeyse etkisiz, parlama okumayı değil tespiti öldürüyor
-- **İP15** — eşik 1560 karede kalibre edildi, envanterdeki 0,70 doğrulandı
-- **`read/digital.py` + `synth/digital.py`** — 7-segment panel, %93,3 dizge
-- **`read/state.py` + `synth/state.py`** — lamba/vana, %100/%100, sessiz yanlış
-  sınıflandırma yok
-- **`publish/reading.py`** — `inspect/reading` yayını + katı şema doğrulaması,
-  broker bağımsız
-- Testler 149 → **221**
-- Günlük raporlar 10-14.08 + H3 haftalığı yazıldı
+**🔴 Kimlik doğrulaması YOK ve görüntüden çıkarılamıyor.** Zincir "bu kutu
+gerçekten PT-101 mi?" diye sormuyor; kendisine `--gosterge PT-101` denmiş ve
+güveniyor. Bu yüzden `demo/girdi/gosterge.mp4`'teki psi manometresi
+"PT-101: 5,2 bar, status ok" diye yayınlanıyor — yanlış gösterge, yanlış birim,
+yüksek güven.
+
+21.08'de yatıklığın **ayrıklık** sayısı kimlik kapısı olarak denendi ve elendi:
+
+| Kimlik | n | min | medyan | maks |
+|---|:--:|---|---|---|
+| doğru | 10 | -0,031 | **0,011** | 0,111 |
+| yanlış | 12 | -0,613 | **-0,103** | 0,019 |
+
+Dağılımlar örtüşüyor. Sentetik kadranda ayırıyordu (doğru 0,112-0,147, yabancı
+0,012) — **ayırt edicilik ölçüte değil sentetiğin temizliğine aitmiş.** Kimlik
+beyanla gelmeli; envanterdeki `waypoint` alanı bunun için (U11).
+
+**Zincir artık tip filtreli.** `pipeline._tipe_uyan_kutular` sınıfı `gauge.type`
+ile eşleşmeyen kutuları eliyor. Bu **kimlik değil tip** kontrolüdür — bir
+termometre de `gauge` sınıfındadır.
+
+**Üretilmiş (AI) videolar okuma doğruluğunu ÖLÇEMEZ.** `data/real/` altındaki üç
+Veo videosu tespit genellemesi için; kadranların ground truth'u yok, envantere
+uydurma satır eklenmez. `scripts/olc_uretilmis_video.py` bunu ölçer ve raporlar.
+
+**Vana kolu renkleri:** `synth/state.py` artık renk/kalınlık çeşitliliğiyle
+çiziyor (`KOL_RENKLERI`, `BORU_RENKLERI`). Okuyucu (`read/state.py::_kol_acisi`)
+hâlâ **en koyu bileşeni** arıyor — renkli kolda bu varsayım tutmaz. 21.08'de üç
+alternatif denendi; ikisi sentetikte iyileşip **gerçek fotoğrafta sessiz hata
+üretti**, biri kapsamayı düşürdü. Okuyucu bilinçli olarak geri alındı.
+Doğru yol: gerçek etiketli vana fotoğrafı toplamak.
+
+---
+
+## 4. Ekip demosu
+
+`python demo\run_demo.py --video <yol>` — üç panel (GÖSTERGE / ALGILAMA /
+ANOMALİ). Depoya gömüldü; girdiler ve çıktılar `.gitignore`'da.
+
+GÖSTERGE paneli artık karedeki **bütün** göstergeleri gösteriyor: okunan yeşil
+kutuda değeriyle, diğerleri gri kutuda "okunmuyor" etiketiyle. Bu, "tespit
+yalnız birini buluyor" yanılgısını kapatmak için eklendi — tespit hepsini
+buluyor, okuma bilerek tek göstergeye bakıyor.
