@@ -15,9 +15,9 @@ Durum özeti bağlam dosyasında; **burada yalnızca "sırada ne var ve neye dik
 
 | İP | Ölçüm | Dosya |
 |---|---|---|
-| **İP8 analog — GERÇEK fotoğraf** | **%0,373** · kapsama 10/10 · hedef %5 | `outputs/metrics/ip8_ekran_hatasi.json` |
+| **İP8 analog — GERÇEK fotoğraf** | **%0,473** · kapsama 10/10 · hedef %5 | `outputs/metrics/ip8_ekran_hatasi.json` |
 | İP8 lamba — gerçek fotoğraf | **4/4 (%100)** | aynı dosya |
-| İP8 vana — gerçek fotoğraf | 2/4 · ara konum doğru `unreadable` | aynı dosya |
+| İP8 vana — gerçek fotoğraf | **4/4 (%100)** · ara konum doğru `unreadable` | aynı dosya |
 | İP8 dijital — gerçek fotoğraf | **0/5** · sessiz hata 0 | `outputs/metrics/ip8_dijital_tani.json` |
 | Zincir (analog, sentetik) | %0,21 tam skala | `outputs/metrics/ip8_zincir_hatasi.json` |
 | İP15 güven eşiği | 0,70 · kapsama %88,1 | `outputs/metrics/ip15_guven_esigi.json` |
@@ -93,12 +93,26 @@ termometre de `gauge` sınıfındadır.
 Veo videosu tespit genellemesi için; kadranların ground truth'u yok, envantere
 uydurma satır eklenmez. `scripts/olc_uretilmis_video.py` bunu ölçer ve raporlar.
 
-**Vana kolu renkleri:** `synth/state.py` artık renk/kalınlık çeşitliliğiyle
-çiziyor (`KOL_RENKLERI`, `BORU_RENKLERI`). Okuyucu (`read/state.py::_kol_acisi`)
-hâlâ **en koyu bileşeni** arıyor — renkli kolda bu varsayım tutmaz. 21.08'de üç
-alternatif denendi; ikisi sentetikte iyileşip **gerçek fotoğrafta sessiz hata
-üretti**, biri kapsamayı düşürdü. Okuyucu bilinçli olarak geri alındı.
-Doğru yol: gerçek etiketli vana fotoğrafı toplamak.
+**Vana kolu renkleri — deney yapıldı, VARSAYILAN KAPALI.** `synth/state.py`
+renk/kalınlık çeşitliliğini destekliyor (`KOL_RENKLERI`, `BORU_RENKLERI`) ama
+veri üreteci onu yalnız `--vana-renkli` ile kullanır. Gerekçe: üretilmiş fabrika
+videosundaki altı kırmızı küresel vana kolu, renk çeşitliliğiyle eğitilen iki
+modelde de bulunamadı (240 karede sıfır `valve`). **Eksik olan renk değil şekil
+ve bağlam** — sahadaki kol yassı bir plaka, flanşlı gövde üstünde; üreteçteki
+ince çizgi + göbek değil. Doğru yol etiketli gerçek vana fotoğrafı toplamak.
+
+Okuyucu (`read/state.py::_kol_acisi`) hâlâ **en koyu bileşeni** arıyor. Renkli
+kolda bu varsayım tutmaz ve dört alternatif ölçüldü (40 karelik renk ızgarası):
+renk uzaklığı 33/40 ama **7 sessiz hata**; kenar kapısı 27/40 sıfır sessiz;
+k-means renk ayrımı sentetikte **40/40 kusursuz** ama gerçek fotoğrafta sessiz
+hata üretti (#26 kapalı vana → "açık", %92 güven). Hepsi geri alındı.
+
+**⚠ EĞİTİM BİTİŞİNİ `results.csv` SATIR SAYISIYLA YOKLAMA.** Ultralytics son
+epoch satırını yazdıktan SONRA doğrulama yapıp `best.pt`'yi bir kez daha yazar
+(24 MB → 6,2 MB, optimizer ayıklanır). 21.08'de saatlerce yarım yazılmış
+ağırlığa ölçüm yapıldı ve oynayan sayılar yanlışlıkla eğitim değişikliklerine
+yazıldı. Doğru ölçüt: dosya boyutu <10 MB ve bir dakika değişmemiş olmalı —
+ya da eğitim sürecinin kendi bitiş sinyali beklenmeli.
 
 ---
 
