@@ -45,6 +45,9 @@ RENK_OKUNMAYAN = (150, 150, 150)   # tespit edildi ama beyan edilen gösterge de
 # Ekranda tip adları: sınıf adı teknik, izleyene tipin ne olduğu söylenmeli.
 TIP_ETIKETI = {"analog": "analog kadran", "digital": "dijital panel",
                "lamp": "ikaz lambasi", "valve": "vana kolu"}
+# Bundan dar bir kutuya etiket yazılmaz — yazı kutudan geniş kalır ve komşu
+# etiketlerle üst üste biner.
+MIN_ETIKET_EN_PX = 90
 
 
 def tespitleri_ciz(kare, tespitler, okunan_kutu=None) -> None:
@@ -65,13 +68,21 @@ def tespitleri_ciz(kare, tespitler, okunan_kutu=None) -> None:
                 and abs(y1 - int(okunan_kutu[1])) < 3:
             continue
         cv2.rectangle(kare, (x1, y1), (x2, y2), RENK_OKUNMAYAN, 2)
+
+        # Küçük kutuya yazı yazılmaz. Devriye karesinde uzaktaki göstergeler
+        # 40-60 px çıkıyor; her birine etiket basılınca yazılar birbirinin ve
+        # okuma satırlarının üstüne biniyor, panel okunmaz hâle geliyor.
+        # Kutunun kendisi zaten "burada bir gösterge var" diyor.
+        if x2 - x1 < MIN_ETIKET_EN_PX:
+            continue
+
         etiket = TIP_ETIKETI.get(t.tip, t.sinif)
         # Etiket kutunun ÜSTÜNE sığmıyorsa İÇİNE yazılır. Dışarı taşarsa
         # karenin en üstüne düşer ve okuma satırlarıyla üst üste biner —
         # ölçülen değer ile "okunmuyor" yazısının karışması, bu çizimin
         # önlemek için var olduğu yanılgının ta kendisidir.
         y_etiket = y1 - 8 if y1 - 8 >= 14 else min(y2 - 8, y1 + 22)
-        cv2.putText(kare, f"{etiket} {t.conf:.2f} - okunmuyor",
+        cv2.putText(kare, f"{etiket} - okunmuyor",
                     (x1 + 4, y_etiket), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                     RENK_OKUNMAYAN, 2, cv2.LINE_AA)
 

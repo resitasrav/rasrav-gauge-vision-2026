@@ -69,3 +69,15 @@ scratch/
 # belgelerinde zaten var; depoda ikinci bir kopya olarak durmasına gerek yok.
 PROJE_BAGLAM.md
 CLAUDE.md
+
+# --- Ekip demosu ---
+# Kod (run_demo.py, uyusmazliklar/) depoda durur; GİRDİ ve ÇIKTI durmaz.
+# Videolar fabrika/deneme çekimidir ve iki depo da PUBLIC — .gitignore tek
+# korumadır. Ağırlık dosyaları da buraya sızmasın: 6 MB'lık .pt dosyaları
+# depo geçmişini kalıcı şişirir ve `runs/` altında zaten üretiliyorlar.
+demo/girdi/
+demo/cikti/
+demo/*.mp4
+demo/*.pt
+demo/*.zip
+demo/*.ipynb
