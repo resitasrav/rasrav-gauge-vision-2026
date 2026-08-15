@@ -28,7 +28,7 @@ değildir, desen kendini tekrar etmez, korelasyon tepesi tektir. Eşit aralıkl�
 kadranda ise desen ~çizgi aralığı kadar periyodiktir; bu belirsizliği iki şey
 kırar: ölü bölge (deseni periyodik olmaktan çıkarır) ve `MAX_ROLL_DEG` sınırı.
 
-Açı konvansiyonu: 0° = saat 3 yönü, CCW pozitif (bkz. CLAUDE.md §3).
+Açı konvansiyonu: 0° = saat 3 yönü, CCW pozitif (bkz. `configs/gauges.yaml` başlığı).
 `roll_deg` sentetik üreteçteki `DialLook.roll_deg` ile aynı işarettedir:
 `angle_img = angle_dial + roll`.
 """

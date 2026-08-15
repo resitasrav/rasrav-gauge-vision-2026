@@ -87,7 +87,7 @@ CIKTI_ADLARI: dict[str, str] = {
 # İçeriği taranacak yerler. `outputs/` ve `data/` yok: onlar üretilen şeyler,
 # kaynak değil.
 TARANAN = ("scripts", "src", "tests", "docs")
-TARANAN_DOSYA = ("README.md", "CLAUDE.md")
+TARANAN_DOSYA = ("README.md", "PROJE_BAGLAM.md")
 UZANTILAR = (".py", ".md", ".yaml", ".yml", ".toml", ".txt")
 
 
@@ -111,7 +111,7 @@ def taranacak_dosyalar() -> list[Path]:
 
 def degisiklikleri_bul() -> tuple[list[tuple[Path, int]], list[tuple[str, str]]]:
     """(içeriği değişecek dosyalar, yapılamayan yeniden adlandırmalar)."""
-    # Script adları da metin olarak geçiyor (komut satırı örnekleri, CLAUDE.md
+    # Script adları da metin olarak geçiyor (komut satırı örnekleri, bağlam dosyası
     # komut tablosu), bu yüzden iki sözlük birlikte uygulanıyor.
     eslesme = {Path(e).name: Path(y).name for e, y in DOSYA_ADLARI.items()}
     eslesme.update(CIKTI_ADLARI)

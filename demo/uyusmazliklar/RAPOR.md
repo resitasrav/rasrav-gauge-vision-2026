@@ -1,7 +1,7 @@
 # Uyuşmazlık Taraması — Birleşik Demo İçin
 
-**Tarih:** 13.08.2026 (staj gün 15/30) · **Tutan:** Reşit Asrav (bu tarama Claude Code ile
-yapıldı, kaynak dosyalara hiçbir yazma işlemi yapılmadı — sadece okuma/statik analiz)
+**Tarih:** 13.08.2026 (staj gün 15/30) · **Tutan:** Reşit Asrav
+(statik tarama — kaynak dosyalara hiçbir yazma işlemi yapılmadı, sadece okuma)
 
 **Kapsam:** `demo/run_demo.py`'nin üç modülü tek pencerede birleştirmesi için gereken
 "ortak sözleşme" karşılaştırması. **Bu dosya `..\..\ortak uyusmazliklar\uyusmazliklar.md`
@@ -46,7 +46,7 @@ import edip video karesi başına çağırmak.
 **Olası etki:** Bu üç modül gerçek robotta bir araya geldiğinde de aynı sorun çıkar — kimse
 diğerinin fonksiyonunu çağıramaz, yalnızca MQTT üzerinden mesajlaşabilirler (ki proje
 mimarisi zaten bunu öngörüyor — "modüller birbirinin koduna değil MQTT şemalarına bağlıdır",
-`CLAUDE.md` başlığı). Demo bunun aksini yapmaya çalıştığı için (tek pencere, tek process,
+proje bağlam dosyası). Demo bunun aksini yapmaya çalıştığı için (tek pencere, tek process,
 doğrudan fonksiyon çağrısı) bu sınırla karşılaştı.
 
 **Bu demoda ne yapıldı (ÖNERİ değil, uygulanan çözüm):**

@@ -201,7 +201,7 @@ def _kol_acisi(image: np.ndarray) -> tuple[float, float] | None:
 
     uzama = float(math.sqrt(max(ozdeger[1], 1e-9) / max(ozdeger[0], 1e-9)))
     vx, vy = ozvektor[:, 1]
-    # y ekseni AŞAĞI arttığı için işaret çevriliyor (CLAUDE.md §3).
+    # y ekseni AŞAĞI arttığı için işaret çevriliyor (bkz. `configs/gauges.yaml` başlığı).
     aci = math.degrees(math.atan2(-vy, vx)) % 180.0
     return aci, uzama
 
