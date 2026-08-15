@@ -42,7 +42,12 @@ from gauge_vision.config import load_gauges
 from gauge_vision.detect.dataset import (IMAGES_DIR, LABELS_DIR, SINIFLAR_COK,
                                          veri_yaml_yaz, yolo_satiri)
 from gauge_vision.synth.digital import render_digital
-from gauge_vision.synth.state import render_lamp, render_valve
+from gauge_vision.synth.state import (
+    BORU_RENKLERI,
+    KOL_RENKLERI,
+    render_lamp,
+    render_valve,
+)
 
 HEDEF_KOK = Path("data/detect/cok_sinif")
 KAYNAK_KARISIK = Path("data/detect/karisik/train")
@@ -61,7 +66,7 @@ class Nesne:
     goruntu: np.ndarray
     bbox_xyxy: tuple[int, int, int, int]
     sinif: int
-    maske: str = "dikdortgen"   # "dikdortgen" | "daire" | "koyu"
+    maske: str = "dikdortgen"   # "dikdortgen" | "daire" | "ayrisan"
 
 
 def _maske_uret(kirpim: np.ndarray, tur: str) -> np.ndarray:
@@ -73,8 +78,8 @@ def _maske_uret(kirpim: np.ndarray, tur: str) -> np.ndarray:
     genel bir eşikten değil:
 
     - `daire` — ikaz lambası yuvarlaktır, muhafazası da öyle.
-    - `koyu`  — vananın gövdesi koldur; kolun çevresindeki gri, çizim zeminidir
-                ve sahada onun yerinde boru/duvar vardır.
+    - `ayrisan` — vananın gövdesi koldur; kolun çevresindeki gri, çizim
+                zeminidir ve sahada onun yerinde boru/duvar vardır.
     - `dikdortgen` — dijital panel gerçekten dikdörtgen bir gövdedir; çerçevesi
                 sahnede de keskin kenarla durur, maskelemek gerçeği bozar.
     """
@@ -83,11 +88,20 @@ def _maske_uret(kirpim: np.ndarray, tur: str) -> np.ndarray:
         m = np.zeros((h, w), np.float32)
         cv2.circle(m, (w // 2, h // 2), int(min(h, w) * 0.5) - 1, 1.0, -1, cv2.LINE_AA)
         return m
-    if tur == "koyu":
-        gri = cv2.cvtColor(kirpim, cv2.COLOR_BGR2GRAY)
-        # Çizim zemini kırpımın köşelerinde durur; gövde ondan koyudur.
-        zemin_tonu = float(np.median([gri[0, 0], gri[0, -1], gri[-1, 0], gri[-1, -1]]))
-        m = (gri < zemin_tonu - 25).astype(np.float32)
+    if tur == "ayrisan":
+        # Gövde, çizim zemininden AYRIŞAN bölgedir — ondan KOYU olan değil.
+        #
+        # Önceki sürüm `gri < zemin - 25` diyordu ve koyu kollu vanada
+        # çalışıyordu. Kol renkleri açılınca (bkz. synth/state.KOL_RENKLERI)
+        # sarı bir kol gri zeminden DAHA PARLAK oluyor, maske boş çıkıyor ve
+        # nesne zemine hiç yapıştırılmıyordu: etiket dosyasında kutu var,
+        # görüntüde nesne yok. Model "boşluk = vana" öğrenirdi — sessiz ve
+        # ölçümde iyi görünen bir veri hatası.
+        zemin = np.median(np.concatenate([
+            kirpim[0], kirpim[-1], kirpim[:, 0], kirpim[:, -1]]).reshape(-1, 3),
+            axis=0)
+        uzaklik = np.linalg.norm(kirpim.astype(np.float32) - zemin, axis=2)
+        m = (uzaklik > 30.0).astype(np.float32)
         return cv2.GaussianBlur(m, (0, 0), 1.0)
     return np.ones((h, w), np.float32)
 
@@ -121,7 +135,8 @@ def _zemin(rng: random.Random) -> np.ndarray:
     return img
 
 
-def _uret_nesne(gauge, sinif: int, rng: random.Random) -> Nesne | None:
+def _uret_nesne(gauge, sinif: int, rng: random.Random,
+                vana_renkli: bool = False) -> Nesne | None:
     """Envanterdeki göstergeden tek bir çizim üretir."""
     if gauge.type == "digital":
         d = gauge.digits or {}
@@ -132,9 +147,30 @@ def _uret_nesne(gauge, sinif: int, rng: random.Random) -> Nesne | None:
         img, truth = render_lamp(gauge, rng.choice(gauge.state_names))
         return Nesne(img, truth.bbox_xyxy, sinif, "daire")
     if gauge.type == "valve":
-        img, truth = render_valve(gauge, rng.choice(gauge.state_names),
-                                  sapma_deg=rng.uniform(-8, 8))
-        return Nesne(img, truth.bbox_xyxy, sinif, "koyu")
+        # `--vana-renkli` DENEYSEL ve VARSAYILAN OLARAK KAPALI — ölçümle öyle
+        # kaldı. Gerekçesi sağlamdı: model üretilmiş fabrika videosundaki altı
+        # KIRMIZI kolun 240 karenin 238'inde hiçbirini bulamıyor, yani
+        # öğrendiği şey "kol" değil "koyu ince çizgi". Ama açıldığında ölçülen:
+        #
+        #   Veo vana videosu     2/240 → 5/240, hâlâ SIFIR `valve` sınıfı
+        #   İP8 gerçek vana      4/4 → 2/4 (#27 hiç bulunamıyor, #26 okunamıyor)
+        #   İP8 gerçek analog    %0,373 → %0,318 (renkten değil, örnek sayısından)
+        #
+        # Yani hedeflenen sorunu ÇÖZMÜYOR ve elimizdeki tek gerçek vana
+        # kanıtını bozuyor. Eksik olan renk değil ŞEKİL ve BAĞLAM: sahadaki
+        # küresel vana kolu yassı bir plaka, flanşlı bir gövdenin üstünde
+        # duruyor; buradaki çizim ince bir çizgi + göbek. Doğru yol etiketli
+        # GERÇEK vana fotoğrafı toplamaktır, sentetik rengi çeşitlendirmek değil.
+        if vana_renkli:
+            img, truth = render_valve(gauge, rng.choice(gauge.state_names),
+                                      sapma_deg=rng.uniform(-8, 8),
+                                      kol_bgr=rng.choice(KOL_RENKLERI),
+                                      boru_bgr=rng.choice(BORU_RENKLERI),
+                                      kol_kalinlik_orani=rng.uniform(0.05, 0.16))
+        else:
+            img, truth = render_valve(gauge, rng.choice(gauge.state_names),
+                                      sapma_deg=rng.uniform(-8, 8))
+        return Nesne(img, truth.bbox_xyxy, sinif, "ayrisan")
     return None
 
 
@@ -179,7 +215,8 @@ def _bindir(zemin: np.ndarray, nesne: Nesne, rng: random.Random,
     return None
 
 
-def uret_kare(gauges: list, rng: random.Random) -> tuple[np.ndarray, list[str]]:
+def uret_kare(gauges: list, rng: random.Random, *,
+              vana_renkli: bool = False) -> tuple[np.ndarray, list[str]]:
     """Bir eğitim karesi: zemin + 1-3 gösterge + YOLO etiket satırları."""
     zemin = _zemin(rng)
     dolu: list[tuple[int, int, int, int]] = []
@@ -188,7 +225,7 @@ def uret_kare(gauges: list, rng: random.Random) -> tuple[np.ndarray, list[str]]:
     for _ in range(rng.randint(1, 3)):
         gauge = rng.choice(gauges)
         sinif = SINIFLAR_COK.index(_SINIF_ADI[gauge.type])
-        nesne = _uret_nesne(gauge, sinif, rng)
+        nesne = _uret_nesne(gauge, sinif, rng, vana_renkli)
         if nesne is None:
             continue
         kutu = _bindir(zemin, nesne, rng, dolu)
@@ -227,6 +264,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--tip-basina", type=int, default=300,
                    help="dijital/lamba/vana için üretilecek kare sayısı (toplam)")
     p.add_argument("--tohum", type=int, default=0)
+    p.add_argument("--vana-renkli", action="store_true",
+                   help="DENEYSEL: vana kolu/borusu renk ve kalınlık çeşitli "
+                        "(21.08 ölçümü: hedeflenen sorunu çözmedi, İP8 gerçek "
+                        "vanayı 4/4'ten 2/4'e düşürdü — bkz. _uret_nesne)")
     args = p.parse_args(argv)
 
     if not (KAYNAK_KARISIK / IMAGES_DIR).exists():
@@ -257,7 +298,8 @@ def main(argv: list[str] | None = None) -> int:
     sayim: dict[str, int] = {ad: 0 for ad in SINIFLAR_COK}
     for i in range(args.tip_basina):
         bolum = "val" if i < n_val else "train"
-        img, satirlar = uret_kare(yeni_tipler, rng)
+        img, satirlar = uret_kare(yeni_tipler, rng,
+                                  vana_renkli=args.vana_renkli)
         if not satirlar:
             continue
         ad = f"cs_{i:05d}"

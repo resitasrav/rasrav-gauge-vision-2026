@@ -52,6 +52,29 @@ KOL_KALINLIK_ORANI = 0.075
 KOL_BGR = (35, 35, 40)
 GOBEK_ORANI = 0.07
 
+# Kol renkleri. Varsayılan (`None` palet) KOL_BGR'dir ve DEĞİŞMEDİ — İP12'nin
+# 13.08'de ölçülen %100'ü bu görünümle alındı, karşılaştırılabilir kalmalı.
+#
+# Çeşitlilik ölçülmüş bir arızadan doğdu: üretilmiş fabrika videosunda
+# (14.08, `Slow_lateral_camera_dolly_alon.mp4`) sahnede altı kırmızı küresel
+# vana kolu vardı ve model 240 karenin 238'inde HİÇBİRİNİ bulamadı. Sebep
+# eğitim verisinin tek renkli olması: koyu ince bir çizgi öğrenildi, "kol"
+# değil. Sahadaki küresel vana kolları standart olarak renklidir (kırmızı en
+# yaygını; sarı, mavi, siyah da olur) — tek ton bir üreteç bunu göremez.
+KOL_RENKLERI: tuple[tuple[int, int, int], ...] = (
+    (35, 35, 40),        # koyu — eski varsayılan
+    (38, 38, 200),       # kırmızı
+    (40, 190, 215),      # sarı
+    (180, 90, 35),       # mavi
+    (150, 152, 155),     # çıplak metal
+)
+BORU_RENKLERI: tuple[tuple[int, int, int], ...] = (
+    (120, 122, 125),     # gri — eski varsayılan
+    (95, 100, 105),      # koyu çelik
+    (140, 145, 150),     # açık galvaniz
+    (70, 85, 110),       # paslı
+)
+
 
 @dataclass(frozen=True)
 class StateTruth:
@@ -107,15 +130,31 @@ def render_lamp(gauge: Gauge, state: str, *, size: int = CANVAS_PX,
 
 
 def render_valve(gauge: Gauge, state: str, *, size: int = CANVAS_PX,
-                 sapma_deg: float = 0.0) -> tuple[np.ndarray, StateTruth]:
+                 sapma_deg: float = 0.0, kol_bgr: tuple[int, int, int] | None = None,
+                 boru_bgr: tuple[int, int, int] | None = None,
+                 kol_kalinlik_orani: float | None = None
+                 ) -> tuple[np.ndarray, StateTruth]:
     """`state` durumundaki kelebek vanayı çizer.
 
     `sapma_deg` kolu ideal açıdan kaydırır — okuyucunun ±20° toleransını ve
     "arada kalırsa okuma yok" davranışını sınamak için.
+
+    `kol_bgr` / `boru_bgr` verilmezse eski varsayılanlar kullanılır. Bu
+    BİLİNÇLİ: İP12'nin ölçülmüş sayıları o görünümle alındı ve varsayılan
+    değişirse karşılaştırılamaz hâle gelir. Renk çeşitliliğini isteyen taraf
+    (İP5 veri üreteci) paleti açıkça geçer — bkz. `KOL_RENKLERI`.
     """
     if gauge.type != "valve":
         raise ValueError(f"{gauge.id}: render_valve sadece vanada çalışır "
                          f"(tip: {gauge.type})")
+
+    kol_bgr = KOL_BGR if kol_bgr is None else kol_bgr
+    boru_bgr = BORU_BGR if boru_bgr is None else boru_bgr
+    # Kalınlık da çeşitleniyor: sahadaki küresel vana kolu ince bir çizgi değil
+    # yassı bir plakadır ve marka marka değişir. Tek kalınlıkla eğitilen model,
+    # renk düzeltilse bile kalın bir kolu tanımayabilir.
+    kalinlik_orani = (KOL_KALINLIK_ORANI if kol_kalinlik_orani is None
+                      else kol_kalinlik_orani)
 
     img = np.full((size, size, 3), PANO_BGR, dtype=np.uint8)
     merkez = (size // 2, size // 2)
@@ -123,20 +162,20 @@ def render_valve(gauge: Gauge, state: str, *, size: int = CANVAS_PX,
     # Boru hattı: yatay.
     kalinlik = int(size * BORU_KALINLIK_ORANI)
     cv2.rectangle(img, (0, merkez[1] - kalinlik // 2),
-                  (size, merkez[1] + kalinlik // 2), BORU_BGR, -1)
+                  (size, merkez[1] + kalinlik // 2), boru_bgr, -1)
 
     # Kol: open → hatta paralel (0°), closed → dik (90°).
     temel = 0.0 if state == "open" else 90.0
     aci = temel + sapma_deg
     yari = size * KOL_UZUNLUK_ORANI / 2.0
     rad = math.radians(aci)
-    # y ekseni aşağı arttığı için sinüs eksi işaretli (CLAUDE.md §3).
+    # y ekseni aşağı arttığı için sinüs eksi işaretli (bkz. `configs/gauges.yaml` başlığı).
     dx, dy = yari * math.cos(rad), -yari * math.sin(rad)
     p1 = (int(merkez[0] - dx), int(merkez[1] - dy))
     p2 = (int(merkez[0] + dx), int(merkez[1] + dy))
 
-    cv2.line(img, p1, p2, KOL_BGR, max(2, int(size * KOL_KALINLIK_ORANI)), cv2.LINE_AA)
-    cv2.circle(img, merkez, max(3, int(size * GOBEK_ORANI)), KOL_BGR, -1, cv2.LINE_AA)
+    cv2.line(img, p1, p2, kol_bgr, max(2, int(size * kalinlik_orani)), cv2.LINE_AA)
+    cv2.circle(img, merkez, max(3, int(size * GOBEK_ORANI)), kol_bgr, -1, cv2.LINE_AA)
 
     truth = StateTruth(gauge_id=gauge.id, state=state, lever_angle_deg=aci % 180.0,
                        bbox_xyxy=(int(merkez[0] - yari), int(merkez[1] - yari),
