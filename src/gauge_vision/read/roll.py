@@ -75,7 +75,8 @@ MIN_KONTRAST = 0.02        # halkada çizgi hiç görünmüyorsa kestirim üreti
 # 0,40 üç kümenin de dışında, gerçek kadranın en kötüsünün epey altında.
 #
 # Üçüncü satır beklenmeyen bir kazanç: göstergeye YANLIŞ kimlik verilirse
-# (U11 — waypoint sözlüğü tanımsız, kimlik şu an elle geliyor) desen tutmaz ve
+# (U11 — waypoint sözlüğü var ama fiziksel eşleşmeler henüz boş, kimlik şu an elle geliyor)
+# desen tutmaz ve
 # yatıklık kestirimi susar. Yanlış kimliğin sessizce yanlış değer üretmesine
 # karşı elimizdeki tek otomatik işaret budur.
 MIN_UYUM = 0.40

@@ -58,7 +58,7 @@ gauges:
     type: analog                      # analog | digital | lamp | valve
     unit: bar
     location: Kazan dairesi, hat A
-    waypoint: WP-04                   # Özgür'ün altın tur durağı (boş bırakılabilir)
+    waypoint: null                    # Fiziksel waypoint doğrulanınca WP01 biçiminde doldur
     scale:
       min: 0.0                        # kadranın en küçük değeri
       max: 10.0                       # en büyük değeri
@@ -79,7 +79,7 @@ gauges:
     type: analog
     unit: "°C"
     location: Kazan dairesi, giriş
-    waypoint: WP-04
+    waypoint: null
     scale:
       min: 0
       max: 150
@@ -120,7 +120,7 @@ gauges:
     type: digital
     unit: kPa
     location: Kontrol panosu
-    waypoint: WP-07
+    waypoint: null
     digits:
       count: 4                        # ekrandaki hane sayısı
       decimals: 1                     # 123.4 gibi
@@ -144,7 +144,7 @@ gauges:
     name: Pompa çalışma ikaz lambası
     type: lamp
     location: Pompa odası, pano üstü
-    waypoint: WP-05
+    waypoint: null
     states:                           # value alanına bu isimlerden biri basılır
       - name: "off"
         meaning: Pompa durdu
@@ -160,7 +160,7 @@ gauges:
     name: Ana hat kelebek vana
     type: valve
     location: Hat A, çıkış
-    waypoint: WP-06
+    waypoint: null
     states:
       # lever_angle: kol O DURUMDAYKEN kolun açısı (derece, 0° = yatay).
       # Kol iki uçlu olduğu için açı 180° modunda anlamlıdır: 0 ile 180 aynı şey.

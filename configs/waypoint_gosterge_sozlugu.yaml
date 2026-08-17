@@ -1,0 +1,75 @@
+# ============================================================
+# Waypoint — Gösterge Kimlik Sözlüğü
+# ============================================================
+# Amaç: ANOMALİ modülünün (Özgür) waypoint'leri ile GÖSTERGE modülünün
+# (Reşit) gauge_id'lerini eşleştirmek. Bu dosya olmadan Reşit her
+# göstergenin kimliğini elle girmek zorunda kalıyor (U11 açık madde).
+#
+# Kaynaklar:
+#   - Waypoint ID + konum + referans kare: Özgür'ün
+#     data/waypoints/waypoint_listesi.yaml dosyasından alındı.
+#   - gauge_id alanları: Reşit'in configs/gauges.yaml envanterinden
+#     GELECEK — bu dosyada şu an placeholder. Fiziksel konum sahada
+#     doğrulanınca doldurulmalı (aşağıdaki "DOLDURULACAK" notlarına bak).
+#
+# Kullanım:
+#   - ANOMALİ modülü patrol/alert mesajında "waypoint" alanını basar.
+#   - GÖSTERGE modülü bir karede gauge tespit ettiğinde, o karenin
+#     hangi waypoint'te çekildiğini bilirse (kamera konumu / frame_id
+#     eşlemesiyle) gauge_id'yi burada arayıp otomatik atayabilir.
+#
+# ⚠️ FORMAT UYUŞMAZLIĞI (ekip toplantısında netleştirilmeli):
+#   Reşit'in mqtt_sozlesmesi.md dosyasındaki patrol/alert örneğinde
+#   waypoint alanı "WP-04" (tireli) yazılmış, ama gerçek waypoint
+#   ID'lerimiz "WP01" (tiresiz, iki haneli). Şema dondurma
+#   toplantısında hangisi kullanılacak karara bağlanmalı — bu dosya
+#   şimdilik gerçek ID formatını (WP01) esas alıyor.
+# ============================================================
+
+versiyon: 1
+son_guncelleme: "2026-08-17"
+hazirlayan: "Özgür Kotbaş"
+kaynak_video: "31.07/koridor_992.mp4"
+
+waypoints:
+  - waypoint_id: WP01
+    konum: "Koridor başlangıcı — sol duvar"
+    aciklama: "Acil çıkış kapısına bakış"
+    referans_kare: "data/waypoints/referans_kareler/WP01.jpg"
+    # DOLDURULACAK: Bu waypoint'te fiziksel olarak görünen gösterge(ler)
+    # var mı? Varsa gauge_id'leri Reşit'in gauges.yaml'ından buraya yaz.
+    gauges: []
+    # örnek doldurma:
+    # gauges:
+    #   - gauge_id: "PT-101"
+    #     tip: "analog"
+    #     not: "Kapının hemen yanındaki basınç göstergesi"
+
+  - waypoint_id: WP02
+    konum: "Koridor ortası"
+    aciklama: "Zemin geniş alan"
+    referans_kare: "data/waypoints/referans_kareler/WP02.jpg"
+    gauges: []
+
+  - waypoint_id: WP03
+    konum: "Koridor sonu — makine yanı"
+    aciklama: "Boru/makine bölgesi"
+    referans_kare: "data/waypoints/referans_kareler/WP03.jpg"
+    # Not: "Boru/makine bölgesi" açıklaması burada bir gösterge
+    # olma ihtimalini güçlü kılıyor — Reşit'in envanterinde
+    # buraya denk gelen bir gauge_id varsa öncelikle bu waypoint'i
+    # doldurun.
+    gauges: []
+
+# ============================================================
+# Reşit'e not:
+# gauges.yaml envanterindeki göstergelerin fiziksel waypoint karşılığı
+# henüz doğrulanmadı. Bu yüzden configs/gauges.yaml içindeki waypoint
+# alanları şimdilik boş bırakıldı; yanlış WP yazmaktansa hiç yazmamak
+# daha güvenli.
+#
+# gauges_envanterin (Reşit doldursun):
+#   - gauge_id: ""
+#     tip: ""            # analog | digital | lamp | valve
+#     bilinen_konum: ""  # varsa serbest metin tarif
+# ============================================================

@@ -48,7 +48,7 @@ python -m pytest          # envanter doğrulama testleri geçmeli
 
 | Klasör | İçerik |
 |---|---|
-| `configs/` | `gauges.yaml` — gösterge envanteri, **okuma zincirinin tek doğru kaynağı** |
+| `configs/` | `gauges.yaml` — gösterge envanteri; `waypoint_gosterge_sozlugu.yaml` — waypoint↔gösterge köprüsü |
 | `src/gauge_vision/` | Modül kodu (`config.py`; ilerleyen İP'lerde `synth/`, `detect/`, `read/`, `publish/`) |
 | `tests/` | pytest — envanter ve okuma doğrulaması |
 | `scripts/` | Tek seferlik yardımcılar (veri indirme, toplu üretim) |
@@ -73,6 +73,8 @@ print(pt101.unit, pt101.scale.min, pt101.scale.max, pt101.scale.sweep_deg)
 
 Yeni bir gösterge test edilecekse **YAML'a satır eklenir, kod değişmez.**
 Açı konvansiyonu (0° = saat 3, CCW pozitif) dosyanın başında şemasıyla tanımlı.
+Waypoint kimliği sahada doğrulanmadan envantere yazılmaz; eşleme
+[configs/waypoint_gosterge_sozlugu.yaml](configs/waypoint_gosterge_sozlugu.yaml) üzerinden takip edilir.
 
 ---
 
