@@ -33,6 +33,7 @@ import cv2
 from gauge_vision.config import load_gauges
 from gauge_vision.pipeline import read_gauge
 from gauge_vision.read.calibrate import DURUM_OK
+from gauge_vision.temporal import TemporalConfig, TemporalStabilizer
 
 VARSAYILAN_AGIRLIK = "runs/detect/models/ip5/karisik/weights/best.pt"
 CIKTI_DIZINI = "outputs/figures"
@@ -165,6 +166,12 @@ def kareyi_ciz(kare, sonuc, gauge) -> None:
             satirlar.append((f"merkez {merkez_kaynak} · yatiklik {yatiklik}",
                              RENK_BILGI, False))
 
+    # Sabitleyici bir sonucu henuz onaylamamis ya da kisa tespit kaybinda son
+    # sonucu tutuyorsa bunu gorunur kil. Aksi halde ekrandaki sayi yeni kareden
+    # gelmis gibi algilanabilir.
+    if sonuc.reason.startswith("temporal:"):
+        satirlar.append((sonuc.reason, RENK_BILGI, False))
+
     # Kalan sınır ekranda: demoyu izleyen neyin varsayım olduğunu bilsin.
     satirlar.append(("gosterge kimligi ELLE verildi", RENK_BILGI, False))
 
@@ -207,7 +214,17 @@ def dosyadan(yol: Path, model, gauge, conf_esik: float, kaydet: bool) -> int:
     return 0
 
 
-def kameradan(kaynak: int, model, gauge, conf_esik: float, kaydet: bool) -> int:
+def kameradan(
+    kaynak: int,
+    model,
+    gauge,
+    conf_esik: float,
+    kaydet: bool,
+    *,
+    temporal: bool,
+    temporal_kare: int,
+    kayip_toleransi: int,
+) -> int:
     cap = cv2.VideoCapture(kaynak)
     if not cap.isOpened():
         print(f"kamera açılamadı: {kaynak}")
@@ -215,6 +232,19 @@ def kameradan(kaynak: int, model, gauge, conf_esik: float, kaydet: bool) -> int:
 
     pencere = "Gosterge okuma (kapatmak icin q)"
     print("kamera açık — kapatmak için görüntü penceresindeyken 'q'")
+    stabilizer = (
+        TemporalStabilizer(
+            gauge,
+            TemporalConfig(
+                min_confirmed_frames=temporal_kare,
+                lost_grace_frames=kayip_toleransi,
+            ),
+        )
+        if temporal else None
+    )
+    if stabilizer is not None:
+        print(f"temporal sabitleyici acik: {temporal_kare} kare onay, "
+              f"{kayip_toleransi} kare kayip toleransi")
     sayac = 0
     try:
         while True:
@@ -225,6 +255,8 @@ def kameradan(kaynak: int, model, gauge, conf_esik: float, kaydet: bool) -> int:
 
             t0 = time.perf_counter()
             sonuc = read_gauge(kare, model, gauge, detect_conf=conf_esik)
+            if stabilizer is not None:
+                sonuc = stabilizer.update(sonuc)
             gecen = (time.perf_counter() - t0) * 1000
             kareyi_ciz(kare, sonuc, gauge)
             cv2.putText(kare, f"{1000/max(gecen,1e-6):.1f} FPS ({gecen:.0f} ms)",
@@ -261,6 +293,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="dosya modunda kaydet; kamera modunda 's' ile kare yakala")
     p.add_argument("--tespitsiz", action="store_true",
                    help="tespit adımını atla, tüm kareyi gösterge kabul et")
+    p.add_argument("--temporal", action=argparse.BooleanOptionalAction, default=True,
+                   help="kamerada kareler arasi sabitleyiciyi kullan (varsayilan: acik)")
+    p.add_argument("--temporal-kare", type=int, default=3,
+                   help="deger/durum degisimi icin gereken ardisik kare sayisi")
+    p.add_argument("--kayip-toleransi", type=int, default=2,
+                   help="tespit kaybinda son sonucu tutacak kare sayisi")
     args = p.parse_args(argv)
 
     gauges = load_gauges()
@@ -306,8 +344,17 @@ def main(argv: list[str] | None = None) -> int:
     print(f"gösterge: {gauge.id} ({gauge.name}) [{gauge.type}] · {kapsam} · "
           f"ağırlık: {agirlik}")
 
+    if args.temporal_kare < 1 or args.kayip_toleransi < 0:
+        print("temporal-kare en az 1, kayip-toleransi en az 0 olmali")
+        return 1
+
     if args.kaynak.isdigit():
-        return kameradan(int(args.kaynak), model, gauge, args.conf, args.kaydet)
+        return kameradan(
+            int(args.kaynak), model, gauge, args.conf, args.kaydet,
+            temporal=args.temporal,
+            temporal_kare=args.temporal_kare,
+            kayip_toleransi=args.kayip_toleransi,
+        )
     return dosyadan(Path(args.kaynak), model, gauge, args.conf, args.kaydet)
 
 
