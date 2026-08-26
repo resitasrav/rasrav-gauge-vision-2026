@@ -27,3 +27,14 @@ pyarrow>=15.0              # Hugging Face parquet setleri
 # İP11 (dijital / 7-segment OCR)
 # paddleocr>=2.9
 # pytesseract>=0.3
+
+# Gömülü hedefe taşıma (Orange Pi 5 / NPU)
+# Tespit modeli ONNX'e aktarılır; Hailo (.hef) ve RKNN (.rknn) derleyicilerinin
+# girdisi budur. `scripts/disa_aktar_onnx.py` aktarımı yapar ve çıktının
+# PyTorch ile aynı kutuları verdiğini ölçer.
+#
+# ⚠ KART ÜSTÜNDE torch/ultralytics GEREKMEZ. `src/gauge_vision/` saf
+# numpy+opencv+PyYAML'dır; kartta yalnız onnxruntime (ya da Hailo/RKNN çalışma
+# zamanı) + opencv + numpy + PyYAML kurulur.
+onnx>=1.16
+onnxruntime>=1.18

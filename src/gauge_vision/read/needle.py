@@ -31,7 +31,7 @@ kazanan İP7'ye girdi olur.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import cv2
 import numpy as np
@@ -48,6 +48,46 @@ SCAN_STEP_DEG = 0.5        # açı çözünürlüğü; plato ortalaması bunun a
 
 # Platoyu oluşturan açılar: en uzun kesintisiz şeridin bu oranı kadarını yakalayanlar.
 PLATEAU_RATIO = 0.90
+
+# --- DENENDİ ve ELENDİ: ibre ucu / kuyruk ayrımı dış uzanımla (27.08) ----------
+# `SCAN_R_MIN_RATIO` yorumundaki "kuyruk 0,16R'de biter, 180° tersi kendiliğinden
+# elenir" ifadesi **kendi üretecimizin** geometrisidir, evrensel değildir.
+# Bağımsız sette (`Synanthropic/reading-analog-gauge`, gerçek endüstriyel zemin)
+# kadranların belirgin bir karşı-ağırlık kuyruğu var. Ölçülen: 400 karede merkez
+# ETİKETTEN gelirken %1,0, merkez `refine_dial` ile kestirilirken **%8,1 kare
+# 180° ters** okunuyor.
+#
+# İki deneme yapıldı, ikisi de ölçümle elendi — aynı yolu üçüncü kez deneme:
+#
+# 1. "Şerit 0,72R'yi aşıyor mu" (mutlak sonda) → İP8 ekran düzeneğinde okumanın
+#    TAMAMINI reddetti (kapsama 10/10 → 0/10). Orada kutu kadranın çevresinde
+#    pay bıraktığı için yarıçap fazla kestiriliyor ve gerçek ibre 0,72R'ye hiç
+#    ulaşmıyor. Kapı ibrenin kısalığını değil YARIÇAP KESTİRİMİNİN hatasını
+#    ölçüyordu.
+# 2. "İki yönün uzanımı birbirine göre" (göreli, ölçekten bağımsız) → ayırt
+#    etmedi: 749 karede fark medyanı doğru okumalarda 0,52, ters okumalarda
+#    0,48; dağılımlar örtüşüyor. Eşik taraması 0,05'te 73 tersin 0'ını yakalıyor.
+#
+# **Kök sebep ibre mantığında değil MERKEZ DOĞRULUĞUNDA.** İP6'nın kendi
+# duyarlılık tablosu bunu zaten söylüyor: merkez kadran ÇAPININ %2'si kadar
+# kayınca ortalama hata 8,1°, **maksimum 178,8°** oluyor. `refine_dial` bu sette
+# ortalama %1,8 (yarıçapın) sapıyor ama p95'i %4,0 — yani dağılımın kuyruğu tam
+# o kritik bölgeye giriyor ve orada okuma sessizce ters dönüyor. Uzanım ölçütü
+# de merkezden ölçüldüğü için aynı hatadan etkileniyor; hastalığın kendisiyle
+# teşhis konmuyor.
+#
+# **Refine'in kendi kanıt sayıları da bu hatayı ÖNGÖRMÜYOR** (1007 kare,
+# 27.08 · elenen ters / feda edilen doğru):
+#   artık > 0,030   → %6 / %4       ·  yayılma > 0,030 → %12 / %16
+#   destek/r < 2,0  → %27 / %6      ·  destek/r < 4,0  → %38 / %14
+# `destek/r` en iyi ayıran, o bile terslerin dörtte birini yakalayıp doğruların
+# %6'sını feda ediyor. Bu oranla bir kapı koymak sorunu çözmez, sadece kapsamı
+# düşürüp bakılacak bir eşik daha ekler — bu yüzden KONULMADI.
+#
+# Sıradaki denenecek yol ZAMANSAL tutarlılıktır: zincir videoda çalışıyor ve
+# 180°'lik bir sıçrama ardışık karelerde fiziksel olarak imkânsızdır.
+# `gauge_vision/temporal.py` bu iş için zaten var; tek karede ayrılamayan şey
+# kare dizisinde ayrılabilir.
 # Plato bu orandan geniş bir açı yayına yayılıyorsa görüntü koyu/bozuk demektir.
 SPREAD_MAX = 0.15          # tüm dairenin oranı olarak (0.15 → 54°)
 
@@ -103,8 +143,55 @@ def read_needle_angle(
     if radius <= 0:
         raise ValueError(f"yarıçap pozitif olmalı, {radius} verildi")
 
-    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    return (_read_polar if method == "polar" else _read_hough)(gray, center, float(radius))
+    # Önce ROI, sonra iş: maliyet KADRANIN boyutuna bağlı olmalı, karenin
+    # boyutuna değil. Kırpma olmadan `_polarity_mask` bütün kareyi Otsu'dan
+    # geçirip iki kez eşikliyor ve `cvtColor` da tüm kareye iniyordu — ölçülen
+    # (27.08, tek çekirdek, aynı kadran):
+    #     360 px kesit → 3,26 ms · 1080p tam kare → 18,13 ms · 1440p → 30,88 ms
+    # Gömülü hedefte (RK3588) bu fark doğrudan devriye bütçesinden yeniyor.
+    # `refine_dial` bu kırpmayı zaten yapıyordu; okuyucu yapmıyordu.
+    #
+    # Sonuç DEĞİŞMEZ: kırpım kadranın tamamını içeriyor, açı merkeze göreli
+    # ölçülüyor ve `tip_px` çıkışta tam kare koordinatına geri taşınıyor.
+    # İP6'nın 0,123° sayısı bu değişiklikten sonra birebir aynı kaldı.
+    kirpim, ofset = _roi_kirp(image, center, float(radius))
+    gray = kirpim if kirpim.ndim == 2 else cv2.cvtColor(kirpim, cv2.COLOR_BGR2GRAY)
+    yerel_merkez = (center[0] - ofset[0], center[1] - ofset[1])
+
+    okuma = (_read_polar if method == "polar" else _read_hough)(
+        gray, yerel_merkez, float(radius))
+    if okuma is None or ofset == (0, 0):
+        return okuma
+    return replace(okuma, tip_px=(okuma.tip_px[0] + ofset[0],
+                                  okuma.tip_px[1] + ofset[1]))
+
+
+# Kırpım yarıçapın bu katına kadar alınır. 1,0'dan büyük olmalı: `_polarity_mask`
+# kadran yüzünü 0,95R'ye kadar örnekliyor ve Otsu eşiği o bölgeden geliyor —
+# daha dar bir kırpım eşiği değiştirir, yani SONUCU değiştirir.
+ROI_ORANI = 1.15
+
+
+def _roi_kirp(image: np.ndarray, center: tuple[int, int],
+              radius: float) -> tuple[np.ndarray, tuple[int, int]]:
+    """Kadranın çevresini kırpar. `(kırpım, (dx, dy))` döner.
+
+    Kırpım kare sınırlarına taşarsa daraltılır; merkez yine kırpımın içinde
+    kalır çünkü kaydırma da birlikte taşınıyor. Kırpmaya gerek yoksa (kadran
+    zaten kareyi dolduruyorsa) görüntü olduğu gibi ve ofset (0, 0) döner —
+    gereksiz bir kopya çıkarmamak için.
+    """
+    h, w = image.shape[:2]
+    yari = int(radius * ROI_ORANI) + 1
+    x0 = max(0, center[0] - yari)
+    y0 = max(0, center[1] - yari)
+    x1 = min(w, center[0] + yari)
+    y1 = min(h, center[1] + yari)
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return image, (0, 0)
+    if x0 == 0 and y0 == 0 and x1 == w and y1 == h:
+        return image, (0, 0)
+    return image[y0:y1, x0:x1], (x0, y0)
 
 
 # ------------------------------------------------------------ kutupsal tarama --

@@ -170,3 +170,36 @@ def test_gri_goruntu_de_kabul_ediliyor():
     okuma = read_needle_angle(gri, truth.center_px, truth.radius_px)
     assert isinstance(okuma, NeedleReading)
     assert abs(angle_difference_deg(okuma.angle_img_deg, truth.angle_img_deg)) < TOLERANS_DEG
+
+
+def test_sonuc_KARE_BOYUTUNDAN_bagimsiz():
+    """Aynı kadran, farklı büyüklükteki karelerin içinde AYNI açıyı vermeli.
+
+    27.08'de `read_needle_angle`'a ROI kırpması eklendi: maliyet kadranın
+    boyutuna bağlı olmalı, karenin boyutuna değil (1080p'de 18,13 → 3,25 ms;
+    gömülü hedefte bu fark devriye bütçesinden yeniyor). Optimizasyonun
+    şartı sonucu DEĞİŞTİRMEMESİYDİ — bu test onu kilitliyor.
+
+    `tip_px` de sınanıyor: kırpım içinde ölçülen uç noktası tam kare
+    koordinatına geri taşınmazsa çizimler ve hata ayıklama görüntüleri
+    sessizce yanlış yere işaret eder.
+    """
+    import numpy as np
+
+    img, truth = render_analog(GAUGES["PT-101"], 5.0, size=320)
+    temel = read_needle_angle(img, truth.center_px, truth.radius_px)
+    assert temel is not None
+
+    for pay in (200, 600, 1200):
+        h, w = img.shape[:2]
+        buyuk = np.full((h + 2 * pay, w + 2 * pay, 3), 95, np.uint8)
+        buyuk[pay:pay + h, pay:pay + w] = img
+        merkez = (truth.center_px[0] + pay, truth.center_px[1] + pay)
+
+        okuma = read_needle_angle(buyuk, merkez, truth.radius_px)
+        assert okuma is not None, f"pay {pay}: okuma üretilemedi"
+        assert abs(angle_difference_deg(okuma.angle_img_deg,
+                                        temel.angle_img_deg)) < 1e-9, (
+            f"pay {pay}: açı değişti ({okuma.angle_img_deg} ≠ {temel.angle_img_deg})")
+        assert okuma.tip_px == (temel.tip_px[0] + pay, temel.tip_px[1] + pay), (
+            f"pay {pay}: tip_px tam kare koordinatına taşınmamış")
