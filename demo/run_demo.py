@@ -100,11 +100,20 @@ def gosterge_hazirla(gosterge_id: str, agirlik_yolu: Path):
     from gauge_vision.config import load_gauges
     from ultralytics import YOLO
 
-    gauges = load_gauges(str(GOSTERGE_REPO / "configs" / "gauges.yaml"))
-    if gosterge_id not in gauges:
-        raise RuntimeError(
-            f"envanterde yok: {gosterge_id} — mevcutlar: {list(gauges)}")
-    gauge = gauges[gosterge_id]
+    # "yok" = kimlik beyanı yok. Zincir hiçbir kutuya envanter kalibrasyonu
+    # uygulamaz; panel yalnızca görüntüden ölçülebileni gösterir (tip + açı).
+    # İnternetten alınmış rastgele videolarda DÜRÜST mod budur: 26.08'de
+    # PT-101 beyanıyla devir saati "0,8 bar ok", termometre "2,2 bar ok"
+    # yayınlandığı ölçüldü — yanlış kimlik beyanı sessiz yanlış değer üretir.
+    if gosterge_id == "yok":
+        gauge = None
+    else:
+        gauges = load_gauges(str(GOSTERGE_REPO / "configs" / "gauges.yaml"))
+        if gosterge_id not in gauges:
+            raise RuntimeError(
+                f"envanterde yok: {gosterge_id} — mevcutlar: {list(gauges)} "
+                f"(kimliksiz mod için: --gosterge yok)")
+        gauge = gauges[gosterge_id]
     if not agirlik_yolu.exists():
         raise RuntimeError(f"ağırlık dosyası yok: {agirlik_yolu}")
     model = YOLO(str(agirlik_yolu))
@@ -112,23 +121,34 @@ def gosterge_hazirla(gosterge_id: str, agirlik_yolu: Path):
 
 
 def gosterge_isle(frame: np.ndarray, model, gauge, conf: float) -> np.ndarray:
-    from gauge_vision.pipeline import detect_objects, read_gauge
-    import canli_oku  # scripts/canli_oku.py — DEĞİŞTİRİLMEDEN import edilip çizim fonksiyonu çağrılıyor
+    from gauge_vision.pipeline import detect_objects, read_all_analog, read_gauge
+    import canli_oku  # scripts/canli_oku.py — DEĞİŞTİRİLMEDEN import edilip çizim fonksiyonları çağrılıyor
 
-    sonuc = read_gauge(frame, model, gauge, detect_conf=conf)
     kare = frame.copy()
+    tespitler = detect_objects(frame, model, conf=conf)
 
-    # Önce karedeki BÜTÜN göstergeler tipiyle (gri, "okunmuyor"), sonra
-    # beyan edilen göstergenin okuması üstüne. Sıra önemli: okuma çizimi
-    # üstte kalmalı, gri kutular onu örtmemeli.
+    # Katmanlar alttan üste: (1) gri tespit kutuları, (2) turuncu kimliksiz
+    # analog geometrileri (çember + ibre + açı), (3) beyan edilen göstergenin
+    # kalibrasyonlu okuması. Sıra önemli: değer beyanı en üstte kalmalı.
     #
     # Bunun sebebi ölçülmüş bir yanlış anlaşılma: karede iki kadran varken
     # ekranda tek kutu görünüyor ve GÖSTERGE "yalnız birini buluyor" sanılıyordu.
-    # Tespit hepsini buluyor; okuma tek göstergeye bakıyor çünkü kalibrasyon
-    # göstergeye özeldir ve envanterden gelir (2. kural).
-    canli_oku.tespitleri_ciz(kare, detect_objects(frame, model, conf=conf),
-                             okunan_kutu=sonuc.box_xyxy)
-    canli_oku.kareyi_ciz(kare, sonuc, gauge)  # "okunamadı" / değer yazımı bu fonksiyondan gelir (3. kural burada uygulanıyor)
+    # Artık HER analog kutu tek tek okunuyor (çember + ibre açısı); değere
+    # çevirme yalnız kimliği beyan edilende — kalibrasyon göstergeye özeldir
+    # ve envanterden gelir (2. kural), kimliksiz kutuya uygulanmaz (3. kural).
+    sonuc = read_gauge(frame, model, gauge, detect_conf=conf) if gauge else None
+    okunan_kutu = sonuc.box_xyxy if sonuc else None
+
+    canli_oku.tespitleri_ciz(kare, tespitler, okunan_kutu=okunan_kutu)
+    canli_oku.analoglari_ciz(
+        kare, read_all_analog(frame, model, tespitler=tespitler),
+        okunan_kutu=okunan_kutu)
+    if sonuc is not None:
+        canli_oku.kareyi_ciz(kare, sonuc, gauge)  # "okunamadı" / değer yazımı burada (3. kural)
+    else:
+        cv2.putText(kare, "kimlik beyani yok - deger/birim uretilmiyor",
+                    (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2,
+                    cv2.LINE_AA)
     return _letterbox(kare, PANEL_W, PANEL_H)
 
 
@@ -205,7 +225,9 @@ def main(argv=None) -> int:
 
     p = argparse.ArgumentParser(description="Ekip modülleri — birleşik demo")
     p.add_argument("--video", required=True, help="işlenecek video dosyası")
-    p.add_argument("--gosterge", default="PT-101", help="GÖSTERGE envanterindeki gauge_id")
+    p.add_argument("--gosterge", default="yok",
+                    help="GÖSTERGE envanterindeki gauge_id; 'yok' = kimlik beyanı "
+                         "yok, değer/birim üretilmez (rastgele videolar için varsayılan)")
     p.add_argument("--gosterge-agirlik",
                     default=str(GOSTERGE_REPO / "runs/detect/models/ip5/karisik/weights/best.pt"))
     p.add_argument("--algilama-agirlik", default=str(GOSTERGE_REPO / "yolov8n.pt"),

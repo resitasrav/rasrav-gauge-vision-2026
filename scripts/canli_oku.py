@@ -88,6 +88,35 @@ def tespitleri_ciz(kare, tespitler, okunan_kutu=None) -> None:
                     RENK_OKUNMAYAN, 2, cv2.LINE_AA)
 
 
+RENK_GEOMETRI = (0, 165, 255)   # kimliksiz analog: yalnız geometri (açı) beyanı
+
+
+def analoglari_ciz(kare, okumalar, okunan_kutu=None) -> None:
+    """Kimliksiz analog okumaları çizer: kadran çemberi + ibre + AÇI.
+
+    Turuncu, bilinçli olarak üçüncü bir renktir: yeşil/kırmızı bir DEĞER
+    beyanıdır (kalibrasyonlu okuma), gri "yalnız tespit" der; turuncu ise
+    "geometrisi ölçüldü ama kimliği bilinmediği için değere çevrilmedi"
+    demektir. Birim yazılmaz — birim kimliğe aittir ve kimlik görüntüden
+    çıkarılamıyor (26.08: devir saati "0,8 bar", termometre "2,2 bar"
+    sınıfı sessiz hatanın kapanışı).
+    """
+    for o in okumalar:
+        x1, y1, x2, y2 = (int(v) for v in o.box_xyxy)
+        if okunan_kutu is not None and abs(x1 - int(okunan_kutu[0])) < 3 \
+                and abs(y1 - int(okunan_kutu[1])) < 3:
+            continue          # beyan edilen gösterge kendi (yeşil) çizimini alıyor
+        if not o.ok:
+            continue          # açı yoksa gri tespit kutusu zaten çizildi
+        cv2.circle(kare, o.center_px, int(o.radius_px), RENK_GEOMETRI, 2, cv2.LINE_AA)
+        cv2.line(kare, o.center_px, o.needle.tip_px, RENK_GEOMETRI, 2, cv2.LINE_AA)
+        if x2 - x1 >= MIN_ETIKET_EN_PX:
+            y_etiket = y1 - 8 if y1 - 8 >= 14 else min(y2 - 8, y1 + 22)
+            cv2.putText(kare, f"aci {o.needle.angle_img_deg:.0f} deg · birim ?",
+                        (x1 + 4, y_etiket), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                        RENK_GEOMETRI, 2, cv2.LINE_AA)
+
+
 class _TespitYok:
     """Tespit yerine tüm kareyi kutu olarak veren yer tutucu (`--tespitsiz`).
 

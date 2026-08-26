@@ -41,6 +41,13 @@ MIN_YARICAP_PX = 12
 # Tespit sınıfı → envanterdeki gösterge tipi. Dört sınıflı model (İP5
 # genişletmesi) bu adları kullanır; tek sınıflı eski ağırlıklarda yalnız
 # `gauge` vardır ve eşleme yine doğru çalışır.
+#
+# ⚠ `keypad` BİLEREK YOK. 27.08'de eklenen buton paneli tipinin okuyucusu
+# hazır ama TESPİT sınıfı yok: yeni bir sınıf eklemek modeli yeniden eğitmek
+# demektir ve o eğitim, sahadan gerçek pano fotoğrafı gelmeden yapılırsa yine
+# kendi çizdiğimiz panoyu öğrenir. Bu yüzden buton paneli şimdilik kırpılmış
+# görüntüde okunuyor (`canli_oku.py --tespitsiz`) — dijital, lamba ve vana da
+# İP11/İP12'de tam olarak böyle doğrulanmıştı, tespit sonra geldi.
 SINIF_TIP: dict[str, str] = {
     "gauge": "analog", "digital": "digital", "lamp": "lamp", "valve": "valve",
 }
@@ -158,6 +165,74 @@ def detect_objects(image: np.ndarray, model, *, conf: float = 0.25) -> list[Tesp
     return cikti
 
 
+@dataclass(frozen=True)
+class AnalogKutuOkuma:
+    """Kimliği bilinmeyen TEK analog kutunun geometrik okuması.
+
+    Değer ve birim bilinçli olarak YOK: kalibrasyon (min/max, süpürme, birim)
+    göstergenin kimliğine aittir ve kimlik görüntüden çıkarılamıyor (ölçüldü,
+    bkz. `_tipe_uyan_kutular`). Kimliksiz kutuya envanterden bir kalibrasyon
+    uygulamak "termometreyi bar okumak" sınıfı sessiz hata üretir — 26.08'de
+    dört videoda fiilen gözlendi (devir saati "0,8 bar ok", termometre
+    "2,2 bar ok"). Burada yalnızca görüntüden ölçülebilen söylenir: kadran
+    çemberi ve ibre açısı.
+    """
+
+    box_xyxy: tuple[float, float, float, float]
+    conf: float
+    center_px: tuple[int, int] | None
+    radius_px: float
+    center_refined: bool
+    needle: NeedleReading | None
+    reason: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.needle is not None
+
+
+def read_all_analog(
+    image: np.ndarray,
+    model,
+    *,
+    conf: float = 0.25,
+    tespitler: list["Tespit"] | None = None,
+) -> list[AnalogKutuOkuma]:
+    """Karedeki BÜTÜN analog kutulara daire rafinesi + ibre açısı uygular.
+
+    `read_frame` tek (beyan edilen) göstergeyi değere çevirir; bu fonksiyon
+    onun tamamlayıcısıdır: karede birden çok analog gösterge varken diğerleri
+    görmezden gelinmesin diye HER analog kutu tek tek okunur. Çıktı açı
+    düzeyindedir — değere çevirme, kimliği beyan edilen kutu için
+    `read_frame`'de kalır.
+
+    `tespitler` verilirse tespit tekrarlanmaz (demo aynı karede
+    `detect_objects` zaten çağırıyor; modeli iki kez koşturmak kare hızını
+    yarılar).
+    """
+    if tespitler is None:
+        tespitler = detect_objects(image, model, conf=conf)
+
+    cikti: list[AnalogKutuOkuma] = []
+    for t in tespitler:
+        if t.tip != "analog":
+            continue
+        merkez, yaricap = dial_from_box(t.box_xyxy)
+        if yaricap < MIN_YARICAP_PX:
+            cikti.append(AnalogKutuOkuma(t.box_xyxy, t.conf, None, 0.0, False,
+                                         None, f"kadran çok küçük ({yaricap:.0f} px)"))
+            continue
+        daire = refine_dial(image, merkez, yaricap)
+        rafine = daire is not None
+        if rafine:
+            merkez, yaricap = daire.center_px, daire.radius_px
+        aci = read_needle_angle(image, merkez, yaricap, method="polar")
+        cikti.append(AnalogKutuOkuma(
+            t.box_xyxy, t.conf, merkez, yaricap, rafine, aci,
+            "" if aci is not None else "ibre bulunamadı"))
+    return cikti
+
+
 def read_gauge(
     image: np.ndarray,
     model,
@@ -209,6 +284,9 @@ def read_gauge(
     elif gauge.type in ("lamp", "valve"):
         from gauge_vision.read.state import read_state
         okuma = read_state(kesit, gauge)
+    elif gauge.type == "keypad":
+        from gauge_vision.read.keypad import read_keypad
+        okuma = read_keypad(kesit, gauge)
     else:
         return _bos(f"desteklenmeyen tip: {gauge.type}", kutu, tespit_guveni)
 
