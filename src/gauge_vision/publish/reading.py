@@ -40,7 +40,17 @@ SEMA_SURUMU = 1
 # Sözleşmedeki durum kümesi. Yeni bir durum eklemek şema değişikliğidir ve
 # ekip kararı gerektirir (KT2) — bu yüzden burada sabit ve kapalı.
 GECERLI_DURUMLAR = {"ok", "unreadable", "out_of_range", "alarm"}
-GECERLI_TIPLER = {"analog", "digital", "lamp", "valve"}
+# 27.08'de `keypad` (buton/tuş paneli) eklendi. **Mesajın ŞEKLİ değişmedi:**
+# alan adları, türleri ve `schema: 1` aynı; buton paneli de lamba ve vana gibi
+# `value` alanına bir DURUM ADI basıyor ("calisiyor"). Değişen tek şey `type`
+# alanının alabileceği değerler kümesidir.
+#
+# Sürüm numarası artırılmadı çünkü alan bazında ayrıştıran hiçbir tüketici
+# etkilenmiyor; yalnız `type` üzerinde KAPALI bir eşleşme yazmış bir tüketici
+# tanımadığı bir değer görür. Bu, ekibe bildirilecek bir sözleşme genişlemesidir
+# ve `../ortak uyusmazliklar/uyusmazliklar.md` dosyasına yazıldı (U-KP1).
+# Ekip farklı karar verirse yapılacak şey `SEMA_SURUMU`'nü artırmaktır.
+GECERLI_TIPLER = {"analog", "digital", "lamp", "valve", "keypad"}
 
 # Zarf alanları — gövde `as_message()`'tan gelir, bunlar yayın anında eklenir.
 ZARF_ALANLARI = ("ts", "schema", "source", "img_ref")

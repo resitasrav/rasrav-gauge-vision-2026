@@ -26,7 +26,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "configs" / "gauges.yaml"
 
-GAUGE_TYPES = ("analog", "digital", "lamp", "valve")
+GAUGE_TYPES = ("analog", "digital", "lamp", "valve", "keypad")
 
 # Karekök ölçekli kadran (fark basınçlı debimetre): akış Q ∝ √ΔP, ibre ise ΔP ile
 # orantılı sapar → ibrenin süpürmedeki oranı değerin KARESİ kadardır. Ölçek alt uçta
@@ -151,6 +151,7 @@ class Gauge:
     scale: Scale | None = None           # analog
     digits: dict[str, Any] | None = None # digital
     states: list[dict[str, Any]] = field(default_factory=list)  # lamp / valve
+    buttons: list[dict[str, Any]] = field(default_factory=list)  # keypad
     alarm: dict[str, float] = field(default_factory=dict)
     synthetic: dict[str, Any] = field(default_factory=dict)  # İP3 çizim ayarları
     notes: str | None = None
@@ -174,6 +175,24 @@ class Gauge:
         """
         return {s["name"]: float(s["lever_angle"]) % 180.0
                 for s in self.states if s.get("lever_angle") is not None}
+
+    @property
+    def button_names(self) -> list[str]:
+        return [b["id"] for b in self.buttons]
+
+    @property
+    def machine_states(self) -> list[dict[str, Any]]:
+        """Buton kombinasyonu → makine durumu kuralları, envanterdeki sırayla.
+
+        **Neden envanterde:** hangi buton bileşiminin "çalışıyor" demek olduğu
+        MAKİNENİN bilgisidir, algoritmanın değil. Aynı kod, butonları farklı
+        dizilmiş bir panoyu da doğru okumalı; fark YAML satırında kalmalı
+        (2. kural — `state_angles` ile aynı gerekçe).
+
+        Sıra anlamlıdır: ilk eşleşen kural kazanır, böylece özel bir durum
+        (örn. "arıza") genel bir kuraldan önce yazılabilir.
+        """
+        return list(self.raw.get("machine_states") or [])
 
     @property
     def tolerance_deg(self) -> float:
@@ -247,6 +266,83 @@ def load_gauges(path: str | Path | None = None) -> dict[str, Gauge]:
     if not gauges:
         raise ConfigError(f"{path}: envanter boş")
     return gauges
+
+
+def _dogrula_butonlar(entry: dict[str, Any], gid: str, where: str) -> None:
+    """Buton panelinin (`keypad`) yerleşim ve kural beyanlarını sınar.
+
+    Beş kontrol, hepsi sessiz hata sınıfına karşı — bir buton paneli yanlış
+    okunduğunda çıkan şey bir sayı değil **makinenin durumudur**; "çalışıyor"
+    derken duran bir makine, yanlış bir basınç değerinden tehlikelidir.
+
+    1. **En az bir buton** ve her butonun `id`'si olmalı; `id` tekrar edemez —
+       aynı ada iki buton, kural eşleşmesini yazı-turaya çevirir.
+    2. **Konum oranları kare içinde kalmalı.** `center` ve `radius` tespit
+       kutusuna ORANDIR (0-1); piksel yazılırsa okuma sessizce kare dışını
+       örnekler ve her butonu "sönük" görür.
+    3. **Butonlar ÇAKIŞMAMALI.** İki buton dairesi üst üste binerse ikisi de
+       aynı pikselleri örnekler ve durumları birbirine kopyalanır.
+    4. **Her butonun en az iki durumu olmalı** — tek durumlu bir buton hiçbir
+       şey ayırt etmez.
+    5. **Kurallar yalnız tanımlı butonlara ve durumlara atıf yapabilir.**
+       Yazım hatası olan bir kural sessizce hiç eşleşmez ve panel sonsuza kadar
+       `unreadable` döner; hata envanterde, belirtisi okumada çıkar.
+    """
+    butonlar = entry.get("buttons") or []
+    if not butonlar:
+        raise ConfigError(f"{where} ({gid}): 'keypad' en az bir buton ister")
+
+    gorulen: set[str] = set()
+    daireler: list[tuple[str, float, float, float]] = []
+    for b in butonlar:
+        bid = b.get("id")
+        if not bid:
+            raise ConfigError(f"{where} ({gid}): butonlardan birinde 'id' yok")
+        if bid in gorulen:
+            raise ConfigError(f"{where} ({gid}): buton id'si tekrar ediyor: '{bid}'")
+        gorulen.add(bid)
+
+        merkez = b.get("center")
+        if not (isinstance(merkez, (list, tuple)) and len(merkez) == 2):
+            raise ConfigError(f"{where} ({gid}/{bid}): 'center' [x, y] olmalı")
+        try:
+            cx, cy = float(merkez[0]), float(merkez[1])
+            r = float(b.get("radius", 0.0))
+        except (TypeError, ValueError) as e:
+            raise ConfigError(f"{where} ({gid}/{bid}): center/radius sayı olmalı — {e}") from e
+        if not (0.0 < r <= 0.5):
+            raise ConfigError(f"{where} ({gid}/{bid}): 'radius' 0-0,5 oranında olmalı, "
+                              f"{r} verildi (piksel değil ORAN)")
+        if not (r <= cx <= 1.0 - r and r <= cy <= 1.0 - r):
+            raise ConfigError(f"{where} ({gid}/{bid}): buton kutunun dışına taşıyor "
+                              f"(merkez {cx},{cy} · yarıçap {r})")
+
+        durumlar = b.get("states") or []
+        if len(durumlar) < 2:
+            raise ConfigError(f"{where} ({gid}/{bid}): buton en az 2 durum ister")
+
+        for ad, ox, oy, orr in daireler:
+            if (cx - ox) ** 2 + (cy - oy) ** 2 < (r + orr) ** 2:
+                raise ConfigError(f"{where} ({gid}): '{bid}' ve '{ad}' butonları "
+                                  f"çakışıyor — ikisi aynı pikselleri örnekler")
+        daireler.append((bid, cx, cy, r))
+
+    izinli = {b["id"]: set(b.get("states") or []) for b in butonlar}
+    for kural in entry.get("machine_states") or []:
+        if not kural.get("name"):
+            raise ConfigError(f"{where} ({gid}): machine_states kuralında 'name' yok")
+        kosul = kural.get("when") or {}
+        if not kosul:
+            raise ConfigError(f"{where} ({gid}/{kural['name']}): 'when' boş olamaz — "
+                              f"koşulsuz kural her kombinasyonu yutar")
+        for bid, beklenen in kosul.items():
+            if bid not in izinli:
+                raise ConfigError(f"{where} ({gid}/{kural['name']}): tanımsız buton "
+                                  f"'{bid}' — mevcutlar: {sorted(izinli)}")
+            if beklenen not in izinli[bid]:
+                raise ConfigError(f"{where} ({gid}/{kural['name']}): '{bid}' butonu "
+                                  f"'{beklenen}' durumunu beyan etmiyor — "
+                                  f"mevcutlar: {sorted(izinli[bid])}")
 
 
 def _dogrula_kol_acilari(entry: dict[str, Any], states: list[dict[str, Any]],
@@ -328,6 +424,8 @@ def _build_gauge(entry: dict[str, Any], defaults: dict[str, Any], where: str) ->
             if not s.get("name"):
                 raise ConfigError(f"{where} ({gid}): durumlardan birinde 'name' yok")
         _dogrula_kol_acilari(entry, states, gid, where)
+    if gtype == "keypad":
+        _dogrula_butonlar(entry, gid, where)
 
     return Gauge(
         id=gid,
@@ -341,6 +439,7 @@ def _build_gauge(entry: dict[str, Any], defaults: dict[str, Any], where: str) ->
         scale=scale,
         digits=entry.get("digits"),
         states=entry.get("states") or [],
+        buttons=entry.get("buttons") or [],
         alarm=entry.get("alarm") or {},
         # Çizim ayarları da defaults < gösterge sırasıyla birleşir: TI-205 sadece
         # tick_major'ı ezip renkleri varsayılandan almaya devam edebilsin diye.

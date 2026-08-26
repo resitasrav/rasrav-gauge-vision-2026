@@ -31,8 +31,10 @@ from gauge_vision.publish.reading import (
 )
 from gauge_vision.read.calibrate import read_value
 from gauge_vision.read.digital import read_digital
+from gauge_vision.read.keypad import read_keypad
 from gauge_vision.read.state import read_state
 from gauge_vision.synth.digital import render_digital
+from gauge_vision.synth.keypad import render_keypad
 from gauge_vision.synth.state import render_lamp, render_valve
 
 TOHUM = 10
@@ -66,6 +68,17 @@ def tur_oku(gauges: dict, rng) -> list:
             durum = gauge.state_names[int(rng.integers(0, len(gauge.state_names)))]
             img, _ = render_valve(gauge, durum, sapma_deg=float(rng.uniform(-10, 10)))
             okuma = read_state(img, gauge)
+        elif gauge.type == "keypad":
+            # Buton paneli `value` alanına bir MAKİNE DURUMU adı basar
+            # ("calisiyor"); lamba/vananın durum adı bastığı yerin aynısı.
+            # Hangi butonun hangi renkte okunduğu `extra`da taşınır ve YAYINA
+            # GİRMEZ — burada sınanan tam olarak budur: yeni tip, dondurulmuş
+            # şemayı (`schema: 1`) genişletmeden akıyor mu?
+            bilesim = {b["id"]: (b.get("states") or ["off"])[
+                int(rng.integers(0, len(b.get("states") or ["off"])))]
+                for b in gauge.buttons}
+            img, _ = render_keypad(gauge, bilesim)
+            okuma = read_keypad(img, gauge)
         else:
             continue
         okumalar.append(okuma)

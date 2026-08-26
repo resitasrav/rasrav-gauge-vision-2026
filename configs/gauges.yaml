@@ -185,3 +185,72 @@ gauges:
     notes: >-
       Durum↔açı eşleşmesi envanterden gelir, koda gömülü değildir. Üç konumlu
       bir vana ya da farklı montaj = buraya satır eklemek/değiştirmek.
+
+  # ---------------------------------------------------------------- keypad ---
+  # Buton/tuş paneli: okunan şey tek bir değer değil, BUTONLARIN BİLEŞİMİDİR.
+  # Amaç "makineye bakınca şu an ne çalışıyor" sorusuna cevap vermek.
+  #
+  # ⚠ AŞAĞIDAKİ YERLEŞİM VE KURALLAR VARSAYIMDIR — gerçek pano fotoğrafı gelince
+  # değişecek olan bu satırlardır, kod değil (2. kural). Sahadaki panonun buton
+  # sayısı, dizilimi ve renk anlamları farklıysa düzeltme burada yapılır.
+  - id: CP-701
+    name: Dolum hattı operatör paneli
+    type: keypad
+    location: Hat A, operatör panosu
+    waypoint: null
+    buttons:
+      # center/radius: TESPİT KUTUSUNA oran (0-1), piksel DEĞİL. Panelin
+      # fiziksel yerleşimidir; farklı bir panoda değişen tek şey budur.
+      # states: o butonun alabileceği görünümler. "off" = sönük/karanlık.
+      - id: power
+        label: ŞALTER
+        center: [0.18, 0.30]
+        radius: 0.11
+        states: ["off", green]
+        meaning: Panoya enerji var mı
+      - id: run
+        label: ÇALIŞTIR
+        center: [0.50, 0.30]
+        radius: 0.11
+        states: ["off", green]
+        meaning: Hat çalışıyor
+      - id: heater
+        label: ISITICI
+        center: [0.82, 0.30]
+        radius: 0.11
+        states: ["off", yellow]
+        meaning: Isıtıcı devrede
+      - id: fault
+        label: ARIZA
+        center: [0.50, 0.72]
+        radius: 0.11
+        states: ["off", red]
+        meaning: Arıza lambası
+    machine_states:
+      # Buton bileşimi → makinenin durumu. SIRAYLA denenir, İLK eşleşen kazanır;
+      # bu yüzden özel durumlar (arıza) genel olanlardan önce yazılır.
+      #
+      # Hiçbir kural eşleşmezse durum UYDURULMAZ, `unreadable` basılır (3. kural).
+      # Bilinmeyen bir buton bileşimine makul görünen bir ad vermek, makine
+      # dururken "çalışıyor" demekle aynı sınıfta hatadır.
+      - name: arizali
+        when: {fault: red}
+        alarm: true
+        meaning: Arıza lambası yanıyor — diğer butonlara bakılmaz
+      - name: enerji_yok
+        when: {power: "off"}
+        meaning: Panoda enerji yok
+      - name: isitmali_calisiyor
+        when: {power: green, run: green, heater: yellow, fault: "off"}
+        meaning: Hat çalışıyor, ısıtıcı devrede
+      - name: calisiyor
+        when: {power: green, run: green, heater: "off", fault: "off"}
+        meaning: Hat çalışıyor
+      - name: bekliyor
+        when: {power: green, run: "off", fault: "off"}
+        meaning: Enerji var, hat durdurulmuş
+    notes: >-
+      Buton yerleşimi ve durum kuralları envanterdedir; okuyucu yalnız
+      "bu daire hangi renkte yanıyor" sorusunu çözer. Renk sınıflandırması
+      lamba okuyucusuyla AYNI koddur (read/state.py) — bir buton, bilinen bir
+      konumdaki lambadır.

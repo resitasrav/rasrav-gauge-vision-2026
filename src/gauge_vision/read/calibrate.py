@@ -31,7 +31,7 @@ yükleyen sınıfta durur.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from gauge_vision.config import Gauge
 
@@ -61,6 +61,13 @@ class GaugeReading:
     status: str
     raw_angle: float          # görüntüde ölçülen açı; izlenebilirlik için ham
     dial_angle: float | None  # yatıklık düzeltilmiş açı — kadran çerçevesinde
+    # Tipe özel ayrıntı — YAYINA GİRMEZ. Buton panelinde (`keypad`) hangi butonun
+    # hangi renkte okunduğu burada taşınır: `value` tek bir makine durumu adıdır
+    # ("calisiyor"), ama o ada nereden varıldığı hata ayıklamada ve demoda
+    # gereklidir. `as_message()` bunu bilerek dışarıda bırakıyor — KT2'de
+    # dondurulan şema (`schema: 1`) değişmemeli, yoksa 20 doğrulama testi ve
+    # ekibin tükettiği sözleşme birlikte kırılır.
+    extra: dict = field(default_factory=dict, repr=False)
 
     def as_message(self) -> dict:
         """MQTT yükü (İP10). `img_ref` yayın anında eklenir, okuma katmanı bilmez."""

@@ -7,7 +7,7 @@ satır eklerse İP6/İP7 saatler sonra tuhaf sayılarla değil, burada patlar.
 import pytest
 import yaml
 
-from gauge_vision.config import ConfigError, load_gauges
+from gauge_vision.config import GAUGE_TYPES, ConfigError, load_gauges
 
 
 def test_envanter_yukleniyor():
@@ -16,10 +16,17 @@ def test_envanter_yukleniyor():
     assert "PT-101" in gauges, "referans gösterge PT-101 envanterde olmalı"
 
 
-def test_dort_tip_de_temsil_ediliyor():
-    """Şema H4'te (dijital/lamba/vana) yeniden tasarlanmasın diye hepsi başından var."""
+def test_her_tip_envanterde_temsil_ediliyor():
+    """Desteklenen her tipin envanterde en az bir örneği olmalı.
+
+    Şema H4'te (dijital/lamba/vana) yeniden tasarlanmasın diye hepsi başından
+    vardı; 27.08'de `keypad` eklendi. Sabit bir küme yerine `GAUGE_TYPES`
+    üzerinden sınanıyor: yeni bir tip koda girip envantere girmezse — yani
+    okuyucusu yazılıp hiç örneklenmezse — test onu yakalar.
+    """
     tipler = {g.type for g in load_gauges().values()}
-    assert tipler == {"analog", "digital", "lamp", "valve"}
+    eksik = set(GAUGE_TYPES) - tipler
+    assert not eksik, f"envanterde örneği olmayan tip(ler): {sorted(eksik)}"
 
 
 def test_supurme_acisi_makul():
