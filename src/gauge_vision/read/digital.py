@@ -63,6 +63,27 @@ ORNEK_PENCERE_ORANI = 0.13    # hane enine oran
 # Sabit eşik kullanılamaz — panel parlaklığı ışığa ve pozlamaya göre değişir.
 AYRIM_PAYI = 0.35             # ayrım noktasının bu kadar uzağındaki değerler net
 
+# --- Aydınlatma bantları (27.08) ---
+# `_panel_seviyeleri` panelin TAMAMI için tek bir yanık/sönük referansı üretir ve
+# bu, aydınlatmanın panel boyunca sabit olmasını gerektirir. Gerçek fotoğrafta
+# gerektirmiyor: ekranda yansıma gradyanı var ve sol üçte birin zemin medyanı
+# sağın **1,53-1,71 katı** çıkıyor (21.08 ölçümü). Tek referansla bir uçta yanık
+# segment eşiğin altında, öbür uçta zemin üstünde kalıyor.
+#
+# Referans YİNE PANELDEN geliyor — hane içinden ölçmek "8" ve boş haneyi
+# çözemez, gerekçesi `_haneyi_coz` docstring'inde — ama sabit değil, hanenin x
+# konumundaki aydınlatmaya göre ölçekleniyor.
+#
+# **Ölçek ZEMİNDEN kestiriliyor, rakamdan değil:** rakam içeriği bantla değişir
+# (bir bantta "8", öbüründe "1") ama zemin yalnız aydınlatmayla değişir.
+#
+# Model ÇARPIMSAL; toplamsal da denendi ve daha zayıf çıktı (İP8'in beş gerçek
+# fotoğrafında çarpımsal 1/5, toplamsal 0/5). Yansıma toplamsal olsa da ekranın
+# kendi parlaklığı çarpımsal ölçekleniyor ve baskın olan o.
+BANT_SAYISI = 8
+# Bozuk bir bant referansı savurmasın: kazanç bu aralığa kırpılır.
+BANT_KAZANC_ALT, BANT_KAZANC_UST = 0.4, 2.5
+
 # Segment düzeni `synth/digital.py` ile aynı: a b c d e f g
 SEGMENT_KONUMLARI: dict[str, tuple[float, float]] = {
     "a": (0.50, 0.06),   # üst
@@ -308,6 +329,49 @@ def _panel_seviyeleri(gri: np.ndarray) -> tuple[float, float]:
     return sonuk, float(np.median(yanik_px))
 
 
+def _aydinlatma_bantlari(gri: np.ndarray) -> tuple[np.ndarray | None, float]:
+    """Panel boyunca aydınlatma profili: bant başına zemin medyanı + genel medyan.
+
+    Zemin = Otsu eşiğinin ALTINDA kalan pikseller (yanmayan yüzey). Bant başına
+    medyan alınıyor; tek bozuk bant referansı savurmasın diye üçlü kayan
+    medyanla yumuşatılıyor.
+    """
+    otsu, _ = cv2.threshold(gri, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    zemin = gri <= otsu
+    if int(zemin.sum()) < 64:
+        return None, 0.0
+
+    genel = float(np.median(gri[zemin]))
+    if genel <= 1e-6:
+        return None, 0.0
+
+    w = gri.shape[1]
+    kenar = np.linspace(0, w, BANT_SAYISI + 1).astype(int)
+    bantlar = np.full(BANT_SAYISI, genel, dtype=float)
+    for i in range(BANT_SAYISI):
+        dilim = gri[:, kenar[i]:kenar[i + 1]]
+        maske = zemin[:, kenar[i]:kenar[i + 1]]
+        px = dilim[maske]
+        if px.size >= 16:
+            bantlar[i] = float(np.median(px))
+
+    yumusak = bantlar.copy()
+    for i in range(BANT_SAYISI):
+        a, b = max(0, i - 1), min(BANT_SAYISI, i + 2)
+        yumusak[i] = float(np.median(bantlar[a:b]))
+    return yumusak, genel
+
+
+def _yerel_seviyeler(bantlar: np.ndarray | None, genel: float, x_merkez: float,
+                     genislik: int, sonuk: float, yanik: float) -> tuple[float, float]:
+    """Panel referansını hanenin bulunduğu bandın aydınlatmasına ölçekler."""
+    if bantlar is None or genel <= 1e-6 or genislik <= 0:
+        return sonuk, yanik
+    i = min(BANT_SAYISI - 1, max(0, int(x_merkez / genislik * BANT_SAYISI)))
+    kazanc = float(np.clip(bantlar[i] / genel, BANT_KAZANC_ALT, BANT_KAZANC_UST))
+    return sonuk * kazanc, yanik * kazanc
+
+
 def _haneyi_coz(parlakliklar: dict[str, float], sonuk_ref: float,
                 yanik_ref: float) -> tuple[str | None, float]:
     """Segment parlaklıklarını rakama çevirir. `(karakter, güven)` döner.
@@ -384,10 +448,14 @@ def read_digital(image: np.ndarray, gauge: Gauge) -> GaugeReading:
     if not kutular:
         return bos(DURUM_OKUNAMADI)
 
+    bantlar, zemin_genel = _aydinlatma_bantlari(gri)
+    genislik = gri.shape[1]
+
     haneler, guvenler = [], []
     for kutu in kutular:
-        ch, g = _haneyi_coz(_segment_parlakliklari(gri, kutu, egim),
-                            sonuk_ref, yanik_ref)
+        s, y = _yerel_seviyeler(bantlar, zemin_genel, (kutu[0] + kutu[2]) / 2.0,
+                                genislik, sonuk_ref, yanik_ref)
+        ch, g = _haneyi_coz(_segment_parlakliklari(gri, kutu, egim), s, y)
         if ch is None:
             # Tek bir çözülemeyen hane tüm sayıyı geçersiz kılar: "12?4" diye
             # bir okuma yayınlanamaz, kısmi sayı yanlış sayıdan farksızdır.
