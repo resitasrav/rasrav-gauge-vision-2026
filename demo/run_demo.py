@@ -201,20 +201,35 @@ def algilama_isle(frame: np.ndarray, model, conf: float = 0.4) -> np.ndarray:
     return _letterbox(kare, PANEL_W, PANEL_H)
 
 
-# ───────────────────────── ANOMALİ (Özgür) — DÜZELTİLMİŞ ENTEGRASYON ─────────────────────────
+# ───────────────────────── ANOMALİ (Özgür) — DÜZELTİLMİŞ ENTEGRASYON v2 ───────────────────────
 # RAPOR.md §1: anomali_test.py (eğitim scripti) demo için uygun değil.
 # ÇÖZÜM: Özgür'ün demo_anomali.py'deki AlgilayiciIP8 (SSIM+ORB) ve
 # AlgilayiciMOG2 sınıflarının mantığı buraya bağımsız sarmalayıcı olarak
 # entegre edildi. Özgür'ün hiçbir dosyası değiştirilmedi.
 # Yöntem: MOG2 arka plan çıkarma (IP9) + SSIM fark skoru (IP8 referanssız mod)
 # Çıktı: patrol/alert sözleşmesiyle uyumlu {is_alert, severity, score} bilgisi
+#
+# v2 — FP düzeltmeleri (analiz_cop_kutusu_fp.py bulgularına göre, 27.08.2026):
+#   Ö1: MOG2 warm-up — ilk kare N=40 kere learningRate=1.0 ile beslenir;
+#       history=200 yetersizliği giderilir (İP12'deki aynı prensip).
+#   Ö2: Tavan bölgesi bastırma — fg maskesinin üst %18'i sıfırlanır;
+#       kamera açı kaymasından doğan tavan/lamba gürültüsü kesilir.
+#   Sonuç: WP01 FP=3 → FP=0-1, F1 0.667 → 0.800+ hedeflenir.
 
 import math as _math
 from collections import deque as _deque
 
+# Ö1: Warm-up için referans kareyi kaç kez besleyeceğiz
+_WARMUP_N = 40
+# Ö2: Tavan crop — üst kaçta birini MOG2 fg maskesinden sıfırlayacağız
+_TAVAN_CROP_ORAN = 0.18
+
 
 class _AlgilayiciMOG2:
-    """Özgür'ün AlgilayiciMOG2 mantığı (demo_anomali.py'den bağımsız kopya)."""
+    """Özgür'ün AlgilayiciMOG2 mantığı (demo_anomali.py'den bağımsız kopya).
+
+    v2: Ö1+Ö2 FP düzeltmeleri entegre edildi.
+    """
 
     def __init__(self):
         self.mog2 = cv2.createBackgroundSubtractorMOG2(
@@ -223,6 +238,20 @@ class _AlgilayiciMOG2:
         self._k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
         self._yellow_lo = np.array([18, 80, 80])
         self._yellow_hi = np.array([38, 255, 255])
+        self._warmed_up = False   # Ö1: ilk kare warm-up tamamlandı mı?
+
+    def warmup(self, frame: np.ndarray, n: int = _WARMUP_N) -> None:
+        """Ö1 — MOG2 cold-start düzeltmesi.
+
+        Referans kareyi n kere learningRate=1.0 ile besleyerek arka plan
+        modelini ısıtır. history=200 yerine n=40 yeterli: MOG2 Gaussian
+        mixture yakınsaması ~30 tekrarda sabitlenir.
+        İP12 notu: 'son 30 kare learningRate=0' — burada tersine
+        'ilk 40 kare learningRate=1.0' mantığı uygulanıyor.
+        """
+        for _ in range(n):
+            self.mog2.apply(frame, learningRate=1.0)
+        self._warmed_up = True
 
     def _yellow_mask(self, bgr):
         hsv  = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
@@ -235,6 +264,13 @@ class _AlgilayiciMOG2:
         fg[fg == 127] = 0
         fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN,  self._k_open)
         fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, self._k_close)
+
+        # Ö2: Tavan bölgesi bastırma — kamera açı kaymasından gelen
+        # lamba/panel gürültüsünü keser. SSIM detektöründeki floor_crop
+        # mantığını MOG2'ye taşır (analiz_cop_kutusu_fp.py §4).
+        tavan_sinir = int(fg.shape[0] * _TAVAN_CROP_ORAN)
+        fg[:tavan_sinir, :] = 0
+
         yellow = self._yellow_mask(frame)
         if fg.shape != yellow.shape:
             yellow = cv2.resize(yellow, (fg.shape[1], fg.shape[0]))
@@ -268,7 +304,10 @@ class _AlgilayiciMOG2:
 
 
 class _AnomalDurumu:
-    """Demo boyunca yaşayan ANOMALİ durum nesnesi."""
+    """Demo boyunca yaşayan ANOMALİ durum nesnesi.
+
+    v2: İlk kare geldiğinde Ö1 warm-up otomatik tetiklenir.
+    """
 
     def __init__(self):
         self.algilayici   = _AlgilayiciMOG2()
@@ -281,7 +320,9 @@ class _AnomalDurumu:
         """Kare → {is_alert, severity, score, fg_mask, fg_ratio, nesneler}"""
         self.kare_no += 1
         if self.ref_frame is None:
+            # Ö1: İlk kare gelince warm-up yap, sonra MOG2'ye gerçek kareler
             self.ref_frame = frame.copy()
+            self.algilayici.warmup(self.ref_frame)
 
         sonuc    = self.algilayici.isle(frame)
         fg_mask  = sonuc["fg_mask"]
