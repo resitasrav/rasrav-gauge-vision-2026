@@ -97,6 +97,34 @@ MEDYAN_MAX = 1.25         # değilse bulunan merkez çemberin merkezi değil
 #
 # ⚠ Bu sayılar SENTETİK görüntüden. Gerçek fotoğrafta cam yansıması ve bulanıklık
 # artığı yükseltecektir; eşik İP8'de gerçek karelerle yeniden ölçülmelidir.
+#
+# --- ÖLÇÜLDÜ (27.08): tahmin doğru çıktı, ama GEVŞETME ÇÖZÜM DEĞİL --------------
+# 14 gerçek videoda rafine **%0,6 oranında kabul ediliyor** — yani sahada fiilen
+# kapalı. Reddin nedeni ölçüldü (373 gerçek kadran kutusu):
+#     artık büyük   %74,3   ← gerçek kadranda medyan artık 0,1195 (eşik 0,05)
+#     kayma büyük   %19,8   ← medyan 0,111 ama p95 0,383 (eşik 0,20)
+#     radyal az      %4,0
+#     KABUL          %0,8
+# Yukarıdaki uyarı aynen gerçekleşmiş: gerçek fotoğrafta artık 2,4 katına çıkıyor.
+#
+# Eşiği gevşetmek DENENDİ ve ELENDİ. Ground truth yok, ama 180° sıçrama fiziksel
+# olarak imkânsız olduğu için hata sinyali ground truth gerektirmiyor. Dört
+# ayar, dört gerçek kadran videosu, 466 okunan kare:
+#
+#     ayar                 rafine   toplam flip   oynama (4.mp4)
+#     kapalı                  %0       10/466        3,24°
+#     mevcut eşik           %0-1       10/466        3,25°
+#     gevşek 0,15/0,30     %31-37      10/466        4,50°
+#     gevşek 0,25/0,40     %34-44      10/466        5,00°
+#
+# Rafine üç kat daha sık ateşliyor ve **flip sayısı hiç değişmiyor**, açı
+# oynaması ise artıyor. Yani gevşetmenin kazandırdığı bir şey yok, kaybettirdiği
+# var. Kapılar reddederken haklı: gerçek kadranda artığı yükselten şey (cam
+# yansıması, bulanıklık) merkezi de o kadar güvenilmez yapıyor.
+#
+# Sonuç: eşikler DEĞİŞTİRİLMEDİ. Rafinenin sahada kapalı olması bir kusur değil,
+# dürüst bir ret — kutu merkezi zaten yeterince iyi. Kalan %2-10'luk flip'in yolu
+# buradan geçmiyor; ZAMANSAL tutarlılık (bkz. read/needle.py sonundaki not).
 MAX_ARTIK_ORANI = 0.05
 MAX_YAYILMA_ORANI = 0.05
 
