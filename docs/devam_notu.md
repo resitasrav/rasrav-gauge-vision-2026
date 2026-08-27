@@ -1,5 +1,28 @@
 # Devam Notu — Oturum Kapanışı
 
+> ## ⏩ 27.08 AKŞAM EKİ — bu bölüm en yenidir, önce burayı oku
+>
+> 14 gerçek video (9573 kare) zincirden geçirildi ve **yapısal bir sessiz hata
+> sınıfı ölçüldü**: karede TEK BİR kadran olmayan beş videoda 383 "gauge"
+> kutusu üretildi ve **hepsi başarıyla okundu** (kapsam 1,00). Gözle
+> doğrulananlar: forkliftin ön tekerleği (açı 44°), elektrikli vantilatör
+> (dönen kanat her karede başka açı), beyaz ikaz lambasının düz camı, ve
+> panoya **basılı** direnç sembolü (tüm kare kadran sanılıp 505 px çember).
+>
+> Dört iş sırayla yapıldı:
+>
+> | # | İş | Sonuç |
+> |---|---|---|
+> | 1 | İbre kanıt kapısı | sahte okuma **383 → 39** (−%89,8), gerçekte −%24,7 |
+> | 2 | Zor negatif + `keypad` sınıfı | sahte kutu **64 → 4** (−%94), gerçekte −%9 |
+> | 3 | Pano tipi metre (kare çerçeve, yay skala) | açı hatası **107,6° → 0,15°** |
+> | 4 | Seçici anahtar (1-0 şalteri) | 8/8, sahte girdiler reddediliyor |
+>
+> **320 test geçiyor** (sabah 283'tü). Ayrıntılar §6'da.
+>
+> **Eksik bırakılan:** `read_all_analog` kapısı yeniden eğitilmiş modelle
+> YENİDEN ÖLÇÜLMELİ — eşikler eski ağırlığın dağılımından seçildi.
+
 **Yazıldığı an:** 27.08.2026 · Gün 26/30
 **Amaç:** Yeni oturum bu dosyayı okuyunca kaldığı yerden devam edebilsin.
 Durum özeti bağlam dosyasında; **burada yalnızca "sırada ne var ve neye dikkat et" var.**
@@ -328,3 +351,182 @@ o kutu yeşil/kırmızı kutuda değeriyle görünür, diğerleri turuncu kalır
 
 Renk sözleşmesi: **yeşil/kırmızı = kalibrasyonlu DEĞER beyanı** ·
 **turuncu = yalnız geometri (kimlik bilinmiyor)** · **gri = yalnız tespit**.
+
+---
+
+## 6. 27.08 akşamı — dört iş, sırayla
+
+Girdi: `demo/girdi/video/` altına 14 stok video kondu (Pexels, ~293 MB, git
+dışı). Hepsi `scripts/isle_video_kumesi.py` ile işlendi; çıktı işaretli video +
+video başına JSON, `demo/cikti/video/`.
+
+**Neden bu videolar ölçüm için sınırlı:** ground truth yok. İnternetten alınmış
+bir manometrenin gerçek değeri bilinmiyor, dolayısıyla **okuma doğruluğu
+ölçülemez**. Ölçülebilen iki şey var ve ikisi de ground truth GEREKTİRMİYOR:
+tespit oranı, ve **180° sıçrama** (ibre iki ardışık karede 180° dönemez —
+fizik yasağı).
+
+### 6.1 İbre kanıt kapısı (`pipeline.read_all_analog`)
+
+`read_frame` (kimliği beyan edilen yol) İP15 eşiğiyle korunuyordu;
+`read_all_analog` İP11 ile dün eklenmişti ve o kapı ona konmamıştı. Delik buydu.
+
+İki DİK kapı kondu, ikisinin eşiği de ölçülerek seçildi (720 gerçek kadran
+okuması / 64 yanlış pozitif):
+
+| kapı | eşik | gerçek medyan | yanlış medyan |
+|---|--:|--:|--:|
+| `MIN_TESPIT_GUVENI` | 0,45 | 0,909 | 0,394 (max 0,675) |
+| `MIN_IBRE_KANITI` | 0,15 | 0,596 | 0,109 |
+
+Tek başına ibre kanıtı YETMİYOR: panoya basılı direnç sembolü gerçekten
+merkezden uzanan kesintisiz koyu bir şerit, ibre güveni 0,94'e çıkıyor. Onu
+tespit güveni eliyor.
+
+Eşiğin **korunması gereken popülasyondaki bedeli** ayrıca ölçüldü (bu depodaki
+ders: önceki kapı denemesi İP8'i 10/10'dan 0/10'a düşürmüştü). Sentetik v1'de
+ibre güveni: temiz min 0,907 · jpeg 40 min 0,907 · çap 64 px min 0,135 ·
+merkez %2 sarsıntı min 0,576 · %4 sarsıntı min 0,218. 0,15 eşiği bu
+popülasyonun en kötü hâlinde %1 kayıp veriyor.
+
+Sonuç (14 video yeniden koşuldu):
+
+| | önce | sonra |
+|---|--:|--:|
+| kadran OLMAYAN videolarda okuma | 383 | **39** (-%89,8) |
+| gerçek kadranlı videolarda okuma | 4787 | 3605 (-%24,7) |
+| 6.mp4 (temiz tek kadran) | 239 | **239** (kayıp yok) |
+| 11.mp4 (tüm kareyi kadran sanan) | 16 | **0** |
+
+### 6.2 DENENDİ ve ELENDİ: `refine_dial` eşiklerini gevşetmek
+
+Ölçüldü: rafine gerçek videoda **%0,6** kabul ediliyor, yani sahada fiilen
+kapalı. Reddin sebebi de ölçüldü (373 gerçek kadran kutusu): artık kapısı
+%74,3, kayma kapısı %19,8. `refine.py`'nin kendi uyarısı (satır 98) aynen
+gerçekleşmiş — gerçek fotoğrafta artık 2,4 katına çıkıyor.
+
+Gevşetme denendi, **elendi**. Ground truth yok ama flip fiziksel hata sinyali:
+
+| ayar | rafine | toplam flip | oynama (4.mp4) |
+|---|--:|--:|--:|
+| kapalı | %0 | 10/466 | 3,24° |
+| mevcut eşik | %0-1 | 10/466 | 3,25° |
+| gevşek 0,15/0,30 | %31-37 | 10/466 | 4,50° |
+| gevşek 0,25/0,40 | %34-44 | 10/466 | 5,00° |
+
+Rafine üç kat sık ateşliyor, flip hiç değişmiyor, oynama artıyor. Eşikler
+DEĞİŞTİRİLMEDİ; gerekçe `detect/refine.py` içine yazıldı.
+
+### 6.3 Zor negatif + `keypad` sınıfı (İP17)
+
+`scripts/hazirla_karistiricilar.py` modelin fiilen yanıldığı nesneleri gerçek
+videolardan kırpıyor ve **etiketine göre kovalara** ayırıyor:
+
+    negatif/ 101   teker, vantilatör kanadı, makine gövdesi -> ETİKETSİZ
+    lamp/     24   ikaz lambası camı
+    keypad/   10   butonlu kontrol panosu
+
+**Bu ayrım ölçümle öğrenildi.** İlk sürümde her kırpım negatifti; sonuç: sahte
+`gauge` kutusu 64->4 (istenen) **ama** 10.mp4'te `lamp` kutusu 49->1 (gerileme).
+O kırpım gerçek bir ikaz lambasıydı; "gösterge değil" diye öğretilince model
+onu lamba olarak da göremez oldu. Bir kırpım gerçekten bir sınıfın örneğiyse o
+sınıfla etiketlenir.
+
+Beşinci sınıf **`keypad`** eklendi (pano). Ayrı bir `button` sınıfı BİLEREK
+yok: ışıklı basmalı buton ile ikaz lambası görsel olarak aynı nesnedir ve ayrı
+sınıf açmak ikisini birden bozardı. `read_keypad` zaten pano kırpımı + envanter
+oranlarıyla çalışıyor — eksik olan panoyu bulacak sınıftı.
+
+Birinci koşu (etiketsiz sürüm, imgsz 416 / batch 16): sahte kutu 64->4,
+gerçek 734->668. İkinci koşu (etiketli kovalar + imgsz 640 + batch 48)
+sayıları `outputs/metrics/ip17_keypad.json` içinde.
+
+**GPU notu:** imgsz 416 / batch 16 ile kart %57 kullanımda, VRAM 1,3/6,1 GB
+idi — yani zamanın %43'ünü veri bekleyerek geçiriyordu. imgsz 640 / batch 48 /
+workers 4 ile %100 kullanım, 5,7/6,1 GB. imgsz asıl kazanç: gerçek videolarda
+kadran yarıçapı 27-70 px ölçüldü, 1080p kareyi 416'ya indirmek 27 px'lik
+kadranı ~10 px'e düşürüyor.
+
+### 6.4 Pano tipi metre — beşinci geometri (İP18)
+
+Kare çerçeve, ~120° yay skala, ibre kenardan dönüyor (elektrik odalarındaki
+ampermetre/voltmetre). Yuvarlak kadran için doğru olan üç varsayımın üçü de
+yanlış. Kendi videolarımızda kanıtı var: 3.mp4'teki iki dikdörtgen VU metresi
+330 karenin **hiçbirinde** tespit edilmedi.
+
+Erişilebilir kamu veri seti arandı, **yok**: Pointer-10K (Baidu Disk,
+CC BY-NC-SA), DialBench, Synanthropic, UFPR-ADMR — hepsi yuvarlak kadran.
+Bu yüzden projenin diğer dört tipiyle aynı yol: `synth/panel.py`.
+
+Envanter `face` bloğuyla geometriyi BEYAN ediyor (`shape`, `pivot`,
+`sweep_radius`) — görüntüden çıkarılmıyor, çünkü yanlış bir pivot okumayı
+kırmaz, sessizce KAYDIRIR. Örnek gösterge: `EM-501`.
+
+İki bileşen de gerekli, ölçüldü (300 kare):
+
+| yapılandırma | açı hatası (ort) | 180° ters |
+|---|--:|--:|
+| **envanter pivot + yay penceresi** | **0,15°** | **0** |
+| envanter pivot, pencere yok | 107,6° | 45 |
+| kutu merkezi + pencere | 38,0° | 0 |
+| kutu merkezi, pencere yok | 126,1° | 124 |
+
+Pencere olmadan tarama ibreyi değil **siyah çerçeveyi** buluyor (pivot alt
+kenara yakın, aşağı bakan ışınlar bezele çarpıyor). `read_needle_angle` artık
+`aci_penceresi` alıyor ve pano tipinde envanterdeki yaydan dolduruluyor.
+
+**Yan bulgu:** `Scale.ccw_araligi` eklendi. `cw` kadranda açı AZALIR, dolayısıyla
+CCW yayı `angle_max`'tan `angle_min`'e uzanır. Düz çıkarma EM-501'de 120°
+yerine 240°'lik yayı veriyordu ve pencere açıkken bile hata 107,6°'de sabit
+kalmıştı — hata buradaydı.
+
+Değer hatası %0,262 (düz kamera), %1,397 (+/-8° yatık). İlk ölçümde %2,63
+çıkmıştı; farkın tamamı `decimals: 1` yuvarlamasıydı (aralık 0-1 MW), okuma
+değil.
+
+Yatıklık kestirimi pano tipinde ATLANIYOR: yöntem kadranın çizgi halkasından
+okuyor, pano metresinde öyle bir halka yok ve hiç ölçülmedi. Burada yanlış bir
+yatıklığın bedeli ağır — tarama penceresini döndürüp ibreyi dışarıda bırakır.
+
+### 6.5 Seçici anahtar — 1-0 şalteri (İP19)
+
+Panoda iki farklı buton türü var ve FARKLI FİZİKLE okunuyorlar:
+
+    ışıklı basmalı buton   durum merceğin RENGİNDEN
+    seçici anahtar (1-0)   durum KOLUN KONUMUNDAN — ışığı yoktur
+
+İkincisini renkle okumak "0" ile "1"i ayırt edemez; sönük bir selector her
+konumda "off" görünür. Kol açısı makinesi zaten vardı (vana kolu) ve
+kopyalanmadı, yeniden kullanıldı. Fark: açılar gösterge düzeyinde değil
+**BUTON düzeyinde** beyan ediliyor (`kind: selector`, `lever_angles`) — bir
+panoda birden çok selector olabilir ve her birinin montajı ayrı.
+
+İki ölçülmüş ayar:
+
+* `SELECTOR_KESIT_PAYI = 1.05` — lambanın 2,2'si burada ZARARLI. Buton bileziği
+  kesite giriyor, halkanın PCA'sı yönsüz: açı 135,0°/45,0° birebir doğru
+  çıkarken uzama 1,08'de kalıp kanıt kapısına takılıyordu.
+* `_daire_maskele` — kesit kare, buton yuvarlak; köşelerdeki koyu bilezik
+  eşiklemede kolla birleşip blob'u kareleştiriyor (uzama 1,15).
+
+Sonuç: 8/8 doğru, düz/gürültülü/siyah girdi reddediliyor. Keypad ölçümü 7
+koşulda tekrarlandı, **hepsinde sıfır sessiz hata**; karanlıkta ve 25° eğikte
+kapsama sıfıra düşüyor (dürüst ret).
+
+**Bilinen sınır:** kamera yatınca kol açısı da dönüyor ama envanterdeki beyan
+sabit. Vananın da aynı sınırı var. 25° eğikte kapsama 0.
+
+---
+
+## 7. Sırada ne var
+
+1. **Kapı eşiklerini yeniden ölç.** `MIN_TESPIT_GUVENI` / `MIN_IBRE_KANITI`
+   eski ağırlığın dağılımından seçildi; yeni model ile
+   `scripts/isle_video_kumesi.py` yeniden koşulup eşikler yeniden konmalı.
+2. **Zamansal tutarlılık.** Kalan %2-10 flip'in tek yolu bu;
+   `gauge_vision/temporal.py` hazır. Refine tarafı ölçümle kapandı (§6.2).
+3. **Pano metresi GERÇEK fotoğrafta** — sentetik ölçüm 0,15° diyor ama bu
+   "yöntem oturuyor mu" cevabı, "sahada ne olur" değil.
+4. **Selector + yatıklık.** Kol açısına roll düzeltmesi.
+5. **Gerçek pano fotoğrafı** (S8/S10) — keypad eşikleri, dijital perspektif ve
+   birim kimliği hep buna bağlı.
