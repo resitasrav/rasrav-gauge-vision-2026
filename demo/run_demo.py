@@ -20,6 +20,8 @@ Hiçbir modülün kaynak dosyası bu script tarafından DEĞİŞTİRİLMEZ. Yaln
 from __future__ import annotations
 
 import argparse
+import json
+import statistics
 import sys
 import time
 import textwrap
@@ -48,6 +50,7 @@ ANOMALI_REPO = STAJ_DIR / "ORTAK" / "OrtakProjeler" / "OzgurKotbas_Akilli_Fabrik
 
 sys.path.insert(0, str(GOSTERGE_REPO / "src"))
 sys.path.insert(0, str(GOSTERGE_REPO / "scripts"))
+sys.path.insert(0, str(DEMO_DIR))          # anomali_demo.py yanımızda duruyor
 
 PANEL_W, PANEL_H = 480, 360
 TITLE_H = 30
@@ -120,7 +123,7 @@ def gosterge_hazirla(gosterge_id: str, agirlik_yolu: Path):
     return gauge, model
 
 
-def gosterge_isle(frame: np.ndarray, model, gauge, conf: float) -> np.ndarray:
+def gosterge_isle(frame: np.ndarray, model, gauge, conf: float) -> tuple[np.ndarray, dict]:
     from gauge_vision.pipeline import detect_objects, read_all_analog, read_gauge
     import canli_oku  # scripts/canli_oku.py — DEĞİŞTİRİLMEDEN import edilip çizim fonksiyonları çağrılıyor
 
@@ -139,17 +142,29 @@ def gosterge_isle(frame: np.ndarray, model, gauge, conf: float) -> np.ndarray:
     sonuc = read_gauge(frame, model, gauge, detect_conf=conf) if gauge else None
     okunan_kutu = sonuc.box_xyxy if sonuc else None
 
+    okumalar = read_all_analog(frame, model, tespitler=tespitler)
     canli_oku.tespitleri_ciz(kare, tespitler, okunan_kutu=okunan_kutu)
-    canli_oku.analoglari_ciz(
-        kare, read_all_analog(frame, model, tespitler=tespitler),
-        okunan_kutu=okunan_kutu)
+    canli_oku.analoglari_ciz(kare, okumalar, okunan_kutu=okunan_kutu)
     if sonuc is not None:
         canli_oku.kareyi_ciz(kare, sonuc, gauge)  # "okunamadı" / değer yazımı burada (3. kural)
     else:
         cv2.putText(kare, "kimlik beyani yok - deger/birim uretilmiyor",
                     (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2,
                     cv2.LINE_AA)
-    return _letterbox(kare, PANEL_W, PANEL_H)
+
+    sinif_sayim: dict[str, int] = {}
+    for t in tespitler:
+        sinif_sayim[t.sinif] = sinif_sayim.get(t.sinif, 0) + 1
+    olcum = {
+        "tespit": sinif_sayim,
+        "analog_kutu": len(okumalar),
+        "analog_okunan": sum(1 for o in okumalar if o.ok),
+        # En büyük kadranın açısı: JSON'dan 180° sıçrama aranabilsin diye.
+        "aci": next((round(float(o.needle.angle_img_deg), 1) for o in
+                     sorted((o for o in okumalar if o.ok),
+                            key=lambda o: -o.radius_px)), None),
+    }
+    return _letterbox(kare, PANEL_W, PANEL_H), olcum
 
 
 # ───────────────────────── ALGILAMA (Bedirhan) ─────────────────────────
@@ -165,11 +180,12 @@ def algilama_hazirla(agirlik_yolu: Path):
     return YOLO(str(agirlik_yolu))
 
 
-def algilama_isle(frame: np.ndarray, model, conf: float = 0.4) -> np.ndarray:
+def algilama_isle(frame: np.ndarray, model, conf: float = 0.4) -> tuple[np.ndarray, dict]:
     kare = frame.copy()
     fh, fw = kare.shape[:2]
     sonuclar = model.track(source=frame, conf=conf, persist=True, verbose=False)
 
+    sinif_sayim: dict[str, int] = {}
     en_iyi, en_yuksek_conf = None, -1.0
     if len(sonuclar) > 0 and sonuclar[0].boxes is not None and sonuclar[0].boxes.id is not None:
         kutular = sonuclar[0].boxes
@@ -179,6 +195,7 @@ def algilama_isle(frame: np.ndarray, model, conf: float = 0.4) -> np.ndarray:
             cls_id = int(kutu.cls[0])
             cls_ad = model.names[cls_id]
             iz_id = int(kutular.id[i]) if kutular.id is not None else -1
+            sinif_sayim[cls_ad] = sinif_sayim.get(cls_ad, 0) + 1
             if conf_i > en_yuksek_conf:
                 en_yuksek_conf = conf_i
                 en_iyi = {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "cls": cls_ad, "id": iz_id}
@@ -194,11 +211,16 @@ def algilama_isle(frame: np.ndarray, model, conf: float = 0.4) -> np.ndarray:
         cv2.line(kare, (fcx, fcy), (cx, cy), (255, 0, 0), 2)
         cv2.putText(kare, f"dx:{dx} dy:{dy}", (cx + 8, cy - 8),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2)
+        # ALGILAMA'nın yayınladığı büyüklük budur: `vision/target_offset`.
+        olcum = {"tespit": sinif_sayim, "hedef": en_iyi["cls"],
+                 "iz_id": en_iyi["id"], "dx": dx, "dy": dy}
     else:
         cv2.putText(kare, "hedef yok", (14, 28), cv2.FONT_HERSHEY_SIMPLEX,
                     0.7, (0, 165, 255), 2)
+        olcum = {"tespit": sinif_sayim, "hedef": None, "iz_id": -1,
+                 "dx": None, "dy": None}
 
-    return _letterbox(kare, PANEL_W, PANEL_H)
+    return _letterbox(kare, PANEL_W, PANEL_H), olcum
 
 
 # ───────────────────────── ANOMALİ (Özgür) ─────────────────────────
@@ -206,16 +228,85 @@ def algilama_isle(frame: np.ndarray, model, conf: float = 0.4) -> np.ndarray:
 # predict, MVTec-AD "bottle" kategorisi). Tek kare alan bir fonksiyon yok,
 # kaydedilmiş bir ağırlık da yok (repo taraması: .ckpt/.pt/.pth bulunamadı).
 # Gerçek bir çağrı denemek MVTec-AD indirip eğitime başlar, bir video karesiyle
-# ilgisi olmaz. Bu yüzden burada BİLE ÇAĞRI YAPILMIYOR, sabit hata üretiliyor.
+# ilgisi olmaz — bu tespit hâlâ geçerli (RAPOR.md madde 1-2).
+#
+# 27.08'e kadar panel bu yüzden sabit HATA gösteriyordu. Artık ALGILAMA'ya
+# uygulanan çözümün aynısı burada da uygulanıyor: modülün DOSYASI değil
+# YÖNTEMİ demo tarafında koşturuluyor (`demo/anomali_demo.py`, PaDiM).
+# Künye panelin başlığında duruyor ki kimse bunu Özgür'ün kodunun çıktısı
+# sanmasın.
 
-ANOMALI_HATA_MESAJI = (
-    "anomali_test.py tek kare almiyor: MVTec-AD 'bottle' uzerinde egitim/"
-    "topluca tahmin scripti, kayitli agirlik da yok (bkz RAPOR.md madde 2)"
-)
+import anomali_demo  # noqa: E402  (demo klasörü sys.path'e main() içinde eklenir)
 
 
-def anomali_isle(frame: np.ndarray) -> np.ndarray:
-    raise RuntimeError(ANOMALI_HATA_MESAJI)
+def anomali_hazirla(video_yolu: Path):
+    return anomali_demo.uyumla(anomali_demo.uyum_kareleri(str(video_yolu)))
+
+
+def anomali_isle(frame: np.ndarray, model) -> tuple[np.ndarray, dict]:
+    cizili, olcum = anomali_demo.anomali_isle(frame, model)
+    return _letterbox(cizili, PANEL_W, PANEL_H), olcum
+
+
+# ───────────────────────── modül özetleri ─────────────────────────
+# Üç modülün çıktısı ÜÇ FARKLI büyüklük (RAPOR.md §0: farklı görevler, farklı
+# şemalar). Ortak bir "reading" özetine zorlamak yanlış olurdu — her modül
+# kendi yayınladığı büyüklüğün özetini üretiyor.
+
+def _sinif_topla(iz: list[dict]) -> dict[str, int]:
+    toplam: dict[str, int] = {}
+    for k in iz:
+        for s, n in k.get("tespit", {}).items():
+            toplam[s] = toplam.get(s, 0) + n
+    return dict(sorted(toplam.items(), key=lambda kv: -kv[1]))
+
+
+def _gosterge_ozeti(iz: list[dict], hata: str | None) -> dict:
+    if hata:
+        return {"hata": hata}
+    kutu = sum(k["analog_kutu"] for k in iz)
+    okunan = sum(k["analog_okunan"] for k in iz)
+    # 180° sıçrama: ibre iki ardışık karede 180° dönemez (fizik yasağı).
+    # Ground truth olmadan ölçülebilen tek hata sinyali budur.
+    acilar = [(i, k["aci"]) for i, k in enumerate(iz) if k["aci"] is not None]
+    flip = 0
+    for (_, a1), (_, a2) in zip(acilar, acilar[1:]):
+        d = abs(a1 - a2) % 360.0
+        d = d if d <= 180.0 else 360.0 - d
+        if 170.0 <= d <= 190.0:
+            flip += 1
+    return {"tespit": _sinif_topla(iz), "analog_kutu": kutu,
+            "analog_okunan": okunan,
+            "kapsam": round(okunan / kutu, 3) if kutu else None,
+            "acili_kare": len(acilar), "flip_180": flip}
+
+
+def _algilama_ozeti(iz: list[dict], hata: str | None) -> dict:
+    if hata:
+        return {"hata": hata}
+    hedefli = [k for k in iz if k["hedef"] is not None]
+    return {"tespit": _sinif_topla(iz), "hedefli_kare": len(hedefli),
+            "hedefsiz_kare": len(iz) - len(hedefli),
+            "izlenen_id_sayisi": len({k["iz_id"] for k in hedefli if k["iz_id"] >= 0}),
+            "ort_sapma_px": (
+                round(statistics.mean(abs(k["dx"]) + abs(k["dy"]) for k in hedefli), 1)
+                if hedefli else None)}
+
+
+def _anomali_ozeti(iz: list[dict], hata: str | None, esik: float | None) -> dict:
+    if hata:
+        return {"hata": hata}
+    skorlar = [k["skor"] for k in iz]
+    isaretli = [i for i, k in enumerate(iz) if k["anomali"]]
+    return {"yontem": "PaDiM (demo sarmalayici, torchvision ResNet18)",
+            "referans": "videonun ilk kareleri",
+            "esik": esik,
+            "skor": {"medyan": round(statistics.median(skorlar), 2),
+                     "min": round(min(skorlar), 2),
+                     "maks": round(max(skorlar), 2)} if skorlar else None,
+            "anomali_kare": len(isaretli),
+            "anomali_orani": round(len(isaretli) / len(iz), 3) if iz else None,
+            "ilk_anomali_kareleri": isaretli[:10]}
 
 
 # ───────────────────────── ana akış ─────────────────────────
@@ -229,7 +320,7 @@ def main(argv=None) -> int:
                     help="GÖSTERGE envanterindeki gauge_id; 'yok' = kimlik beyanı "
                          "yok, değer/birim üretilmez (rastgele videolar için varsayılan)")
     p.add_argument("--gosterge-agirlik",
-                    default=str(GOSTERGE_REPO / "runs/detect/models/ip5/karisik/weights/best.pt"))
+                    default=str(GOSTERGE_REPO / "runs/detect/models/ip5/keypad5/weights/best.pt"))
     p.add_argument("--algilama-agirlik", default=str(GOSTERGE_REPO / "yolov8n.pt"),
                     help="ALGILAMA panelinde kullanılacak YOLO ağırlığı (Bedirhan'ın varsayılanıyla aynı: yolov8n.pt)")
     p.add_argument("--conf", type=float, default=0.25, help="GÖSTERGE tespit güven eşiği")
@@ -268,6 +359,22 @@ def main(argv=None) -> int:
         algilama_hata = str(e)
         print(f"[UYARI] ALGILAMA hazırlanamadı: {e}")
 
+    # ANOMALİ "normal" referansını videonun kendi başından çıkarır, bu yüzden
+    # hazırlık video yolunu bilmek zorunda — diğer iki modülden farkı budur.
+    print("[BİLGİ] ANOMALİ modülü (demo sarmalayıcı, PaDiM) uyumlanıyor...")
+    try:
+        anmodel = anomali_hazirla(video_yolu)
+        anomali_hata = None
+        print(f"[BİLGİ] ANOMALİ eşiği {anmodel.esik:.1f} "
+              f"({anmodel.uyum_kare_sayisi} kare referans)")
+    except Exception as e:
+        anmodel = None
+        anomali_hata = str(e)
+        print(f"[UYARI] ANOMALİ hazırlanamadı: {e}")
+    gosterge_izi: list[dict] = []
+    algilama_izi: list[dict] = []
+    anomali_izi: list[dict] = []
+
     cikti_yolu = Path(args.out)
     cikti_yolu.parent.mkdir(parents=True, exist_ok=True)
     writer = None
@@ -289,7 +396,8 @@ def main(argv=None) -> int:
             try:
                 if gosterge_hata is not None:
                     raise RuntimeError(gosterge_hata)
-                p1 = gosterge_isle(frame, gmodel, gauge, args.conf)
+                p1, gosterge_olcum = gosterge_isle(frame, gmodel, gauge, args.conf)
+                gosterge_izi.append(gosterge_olcum)
             except Exception as e:
                 p1 = _hata_paneli(frame, str(e))
             p1 = _basliklandir(p1, "GOSTERGE (Resit)")
@@ -297,17 +405,20 @@ def main(argv=None) -> int:
             try:
                 if algilama_hata is not None:
                     raise RuntimeError(algilama_hata)
-                p2 = algilama_isle(frame, amodel)
+                p2, algilama_olcum = algilama_isle(frame, amodel)
+                algilama_izi.append(algilama_olcum)
             except Exception as e:
                 p2 = _hata_paneli(frame, str(e))
-            p2 = _basliklandir(p2, "ALGILAMA (Bedirhan)")
+            p2 = _basliklandir(p2, "ALGILAMA (Bedirhan) - demo sarmalayici")
 
             try:
-                p3 = anomali_isle(frame)
-                p3 = _basliklandir(p3, "ANOMALI (Ozgur)")
+                if anomali_hata is not None:
+                    raise RuntimeError(anomali_hata)
+                p3, anomali_olcum = anomali_isle(frame, anmodel)
+                anomali_izi.append(anomali_olcum)
             except Exception as e:
                 p3 = _hata_paneli(frame, str(e))
-                p3 = _basliklandir(p3, "ANOMALI (Ozgur)")
+            p3 = _basliklandir(p3, "ANOMALI (Ozgur) - demo sarmalayici")
 
             birlesik = np.hstack([p1, p2, p3])
             gecen = time.perf_counter() - t0
@@ -337,7 +448,24 @@ def main(argv=None) -> int:
         cv2.destroyAllWindows()
 
     toplam = time.perf_counter() - t_basla
+
+    # Her modül KENDİ incelemesinin özetini yazar. Video gözle bakmak içindir;
+    # gözle görülemeyen şeyler (180° sıçrama, kaç karede hedef vardı, anomali
+    # skorunun zaman içindeki seyri) buradan okunur.
+    rapor = {
+        "video": video_yolu.name,
+        "kare_islenen": kare_idx,
+        "sure_sn": round(toplam, 1),
+        "GOSTERGE": _gosterge_ozeti(gosterge_izi, gosterge_hata),
+        "ALGILAMA": _algilama_ozeti(algilama_izi, algilama_hata),
+        "ANOMALI": _anomali_ozeti(anomali_izi, anomali_hata,
+                                  anmodel.esik if anmodel else None),
+    }
+    rapor_yolu = cikti_yolu.with_suffix(".json")
+    rapor_yolu.write_text(json.dumps(rapor, ensure_ascii=False, indent=2),
+                          encoding="utf-8")
     print(f"[BİLGİ] {kare_idx} kare işlendi, {toplam:.1f} sn · çıktı: {cikti_yolu}")
+    print(f"[BİLGİ] rapor: {rapor_yolu}")
     return 0
 
 

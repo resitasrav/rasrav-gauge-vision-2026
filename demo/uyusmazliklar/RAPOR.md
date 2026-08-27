@@ -1,7 +1,7 @@
 # Uyuşmazlık Taraması — Birleşik Demo İçin
 
-**Tarih:** 13.08.2026 (staj gün 15/30) · **Tutan:** Reşit Asrav
-(statik tarama — kaynak dosyalara hiçbir yazma işlemi yapılmadı, sadece okuma)
+**Tarih:** 13.08.2026 (staj gün 15/30) · **Tutan:** Reşit Asrav (bu tarama Claude Code ile
+yapıldı, kaynak dosyalara hiçbir yazma işlemi yapılmadı — sadece okuma/statik analiz)
 
 **Kapsam:** `demo/run_demo.py`'nin üç modülü tek pencerede birleştirmesi için gereken
 "ortak sözleşme" karşılaştırması. **Bu dosya `..\..\ortak uyusmazliklar\uyusmazliklar.md`
@@ -46,7 +46,7 @@ import edip video karesi başına çağırmak.
 **Olası etki:** Bu üç modül gerçek robotta bir araya geldiğinde de aynı sorun çıkar — kimse
 diğerinin fonksiyonunu çağıramaz, yalnızca MQTT üzerinden mesajlaşabilirler (ki proje
 mimarisi zaten bunu öngörüyor — "modüller birbirinin koduna değil MQTT şemalarına bağlıdır",
-proje bağlam dosyası). Demo bunun aksini yapmaya çalıştığı için (tek pencere, tek process,
+`CLAUDE.md` başlığı). Demo bunun aksini yapmaya çalıştığı için (tek pencere, tek process,
 doğrudan fonksiyon çağrısı) bu sınırla karşılaştı.
 
 **Bu demoda ne yapıldı (ÖNERİ değil, uygulanan çözüm):**
@@ -168,3 +168,52 @@ arkadaşlarının tarafında, kaynak değiştirilmeden çözülemez. Demo bunlar
 GÖRÜNÜR KILARAK (ALGILAMA: demo-tarafı sarmalayıcı ile açık künyeli; ANOMALİ: sabit HATA
 paneli) tamamlandı — 3. kuralın ruhu (yanlış göstermektense göstermemek) modül
 çağrılabilirliği için de uygulandı.
+
+---
+
+## Ek — 27.08.2026: ANOMALİ paneli artık sabit HATA göstermiyor
+
+**Madde 1 ve 2 KAPANMADI.** Özgür'ün tarafında hâlâ tek kare alan bir fonksiyon
+ve kaydedilmiş bir ağırlık yok; yukarıdaki iki madde aynen açık ve muhatabı
+değişmedi. Değişen tek şey demonun bu boşlukla nasıl başa çıktığı.
+
+Eski davranış: panel sabit bir `HATA: ...` metni gösteriyordu. Bu, "üç modül de
+kendi incelemesini yapsın" istendiğinde demonun üçte birinin ölü olması demekti.
+
+Yeni davranış: ALGILAMA'ya uygulanan çözümün aynısı ANOMALİ'ye de uygulandı —
+modülün **dosyası** değil **yöntemi** demo tarafında koşturuluyor
+(`demo/anomali_demo.py`). `anomali_test.py` hâlâ çalıştırılmıyor, import
+edilmiyor, değiştirilmiyor.
+
+**ALGILAMA'daki çözümden bir farkı var ve saklanmamalı.** Orada aynı KÜTÜPHANE
+çağrılabiliyordu (`ultralytics.YOLO.track`, Bedirhan'ın varsayılanıyla birebir).
+Burada `anomalib` bu sanal ortamda kurulu değil ve kurmak çalışan
+`torch 2.13+cu126` kurulumunu riske atıyor. Bu yüzden PaDiM'in kendisi
+(Defard ve ark., 2020 — Özgür'ün `anomali_test.py:17`'de seçtiği model)
+torchvision ResNet18 üstünde uygulandı. Yöntem aynı üç adımdır:
+
+1. önceden eğitilmiş CNN'in ara katmanları birleştirilir (layer1+2+3),
+2. her yama konumu için normal veriden çok değişkenli Gauss çıkarılır,
+3. yeni karede Mahalanobis uzaklığı = anomali haritası.
+
+**"Normal" referansı değişti ve bu bilinçli.** MVTec-AD `bottle` kategorisi bu
+videolarla konu bakımından ilgisiz (madde 2'de zaten yazılı). Referans olarak
+videonun KENDİ ilk kareleri alınıyor; panel "bu videonun başına göre ne
+değişti" sorusunu cevaplıyor. Devriye senaryosunda doğru soru budur — aynı
+durak, aynı çerçeve, zamanla değişen sahne. **Varsayımı da açık:** sahnenin
+başı zaten anormalse ölçüm yanıltır, bu yüzden referansın ne olduğu panelin
+üstünde yazılı duruyor.
+
+Eşik tahmin edilmiyor, ölçülüyor (depo kuralı — mutlak eşik bu depoda üç kez
+sessiz hata üretti): uyum kümesinin kendi skor dağılımının p99'u.
+
+**Panel başlıkları künyelendi.** Artık iki panelin başlığında
+`- demo sarmalayici` yazıyor; kimse bu çıktıları ekip arkadaşlarının kodunun
+çıktısı sanmasın. GÖSTERGE panelinde böyle bir ek yok, çünkü orada gerçekten
+`gauge_vision` paketi çalışıyor.
+
+| # | Konu | Durum |
+|:--:|---|:--:|
+| 1 | Kare-bazlı çağrılabilir fonksiyon yok | 🔴 **hâlâ açık** (Bedirhan, Özgür) |
+| 2 | ANOMALİ'de kaydedilmiş ağırlık yok | 🔴 **hâlâ açık** (Özgür) |
+| — | Demo bu boşlukları nasıl gösteriyor | ✅ ikisi de künyeli sarmalayıcı |
