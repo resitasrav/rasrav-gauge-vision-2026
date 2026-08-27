@@ -33,6 +33,18 @@ SINIFLAR = ("gauge",)
 SINIFLAR_COK = ("gauge", "digital", "lamp", "valve")
 GAUGE_SINIF_ID = 0
 
+# Beş tipli küme (27.08). `keypad` SONA eklendi ki 0-3 aynı kalsın ve dört
+# sınıflı etiketler yeniden yazılmadan bu kümeye girebilsin — `SINIFLAR_COK`'un
+# `gauge`'ı 0'da bırakma gerekçesinin aynısı.
+#
+# Ayrı bir `button` sınıfı BİLEREK yok: ışıklı basmalı buton ile ikaz lambası
+# görsel olarak aynı nesnedir (9s.mp4'te panonun butonları zaten `lamp` olarak
+# tespit ediliyor) ve ayrı sınıf açmak modele ayırt edemeyeceği bir ayrım
+# dayatıp ikisini birden bozardı. Eksik olan buton değil PANONUN KENDİSİydi:
+# `read_keypad` pano kırpımı + envanter oranlarıyla çalışıyor, panoyu bulacak
+# bir sınıf yoktu. Buton durumu paneli okunduktan sonra renkten çıkıyor.
+SINIFLAR_KEYPAD = ("gauge", "digital", "lamp", "valve", "keypad")
+
 IMAGES_DIR = "images"
 LABELS_DIR = "labels"
 
