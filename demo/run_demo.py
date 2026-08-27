@@ -201,21 +201,174 @@ def algilama_isle(frame: np.ndarray, model, conf: float = 0.4) -> np.ndarray:
     return _letterbox(kare, PANEL_W, PANEL_H)
 
 
-# ───────────────────────── ANOMALİ (Özgür) ─────────────────────────
-# anomali_test.py bir eğitim + toplu-tahmin scriptidir (anomalib Engine.fit /
-# predict, MVTec-AD "bottle" kategorisi). Tek kare alan bir fonksiyon yok,
-# kaydedilmiş bir ağırlık da yok (repo taraması: .ckpt/.pt/.pth bulunamadı).
-# Gerçek bir çağrı denemek MVTec-AD indirip eğitime başlar, bir video karesiyle
-# ilgisi olmaz. Bu yüzden burada BİLE ÇAĞRI YAPILMIYOR, sabit hata üretiliyor.
+# ───────────────────────── ANOMALİ (Özgür) — DÜZELTİLMİŞ ENTEGRASYON ─────────────────────────
+# RAPOR.md §1: anomali_test.py (eğitim scripti) demo için uygun değil.
+# ÇÖZÜM: Özgür'ün demo_anomali.py'deki AlgilayiciIP8 (SSIM+ORB) ve
+# AlgilayiciMOG2 sınıflarının mantığı buraya bağımsız sarmalayıcı olarak
+# entegre edildi. Özgür'ün hiçbir dosyası değiştirilmedi.
+# Yöntem: MOG2 arka plan çıkarma (IP9) + SSIM fark skoru (IP8 referanssız mod)
+# Çıktı: patrol/alert sözleşmesiyle uyumlu {is_alert, severity, score} bilgisi
 
-ANOMALI_HATA_MESAJI = (
-    "anomali_test.py tek kare almiyor: MVTec-AD 'bottle' uzerinde egitim/"
-    "topluca tahmin scripti, kayitli agirlik da yok (bkz RAPOR.md madde 2)"
-)
+import math as _math
+from collections import deque as _deque
 
 
-def anomali_isle(frame: np.ndarray) -> np.ndarray:
-    raise RuntimeError(ANOMALI_HATA_MESAJI)
+class _AlgilayiciMOG2:
+    """Özgür'ün AlgilayiciMOG2 mantığı (demo_anomali.py'den bağımsız kopya)."""
+
+    def __init__(self):
+        self.mog2 = cv2.createBackgroundSubtractorMOG2(
+            history=200, varThreshold=20, detectShadows=True)
+        self._k_open  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        self._k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+        self._yellow_lo = np.array([18, 80, 80])
+        self._yellow_hi = np.array([38, 255, 255])
+
+    def _yellow_mask(self, bgr):
+        hsv  = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, self._yellow_lo, self._yellow_hi)
+        k    = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+        return cv2.dilate(mask, k, iterations=1)
+
+    def isle(self, frame: np.ndarray) -> dict:
+        fg = self.mog2.apply(frame)
+        fg[fg == 127] = 0
+        fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN,  self._k_open)
+        fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, self._k_close)
+        yellow = self._yellow_mask(frame)
+        if fg.shape != yellow.shape:
+            yellow = cv2.resize(yellow, (fg.shape[1], fg.shape[0]))
+        fg[yellow > 0] = 0
+        fg_ratio = float(np.sum(fg > 0)) / fg.size
+        nesneler = self._detect(fg, yellow)
+        return {"is_alert": len(nesneler) > 0, "nesneler": nesneler,
+                "fg_mask": fg, "fg_ratio": round(fg_ratio, 4)}
+
+    def _detect(self, mask, yellow_mask):
+        h, w = mask.shape
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
+                                        cv2.CHAIN_APPROX_SIMPLE)
+        objs = []
+        for cnt in contours:
+            if cv2.contourArea(cnt) < 1500:
+                continue
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            if bw * bh > h * w * 0.40:
+                continue
+            cx, cy = x + bw // 2, y + bh // 2
+            try:
+                if yellow_mask[cy, cx] > 0:
+                    continue
+            except IndexError:
+                pass
+            objs.append({"x": int(x), "y": int(y), "w": int(bw), "h": int(bh),
+                          "area": int(bw * bh)})
+        objs.sort(key=lambda o: o["area"], reverse=True)
+        return objs
+
+
+class _AnomalDurumu:
+    """Demo boyunca yaşayan ANOMALİ durum nesnesi."""
+
+    def __init__(self):
+        self.algilayici   = _AlgilayiciMOG2()
+        self.score_hist   = _deque(maxlen=60)
+        self.toplam_uyari = 0
+        self.kare_no      = 0
+        self.ref_frame    = None   # İP8 referansı: ilk kare
+
+    def isle(self, frame: np.ndarray) -> dict:
+        """Kare → {is_alert, severity, score, fg_mask, fg_ratio, nesneler}"""
+        self.kare_no += 1
+        if self.ref_frame is None:
+            self.ref_frame = frame.copy()
+
+        sonuc    = self.algilayici.isle(frame)
+        fg_mask  = sonuc["fg_mask"]
+        fg_ratio = sonuc["fg_ratio"]
+        nesneler = sonuc["nesneler"]
+        is_alert = sonuc["is_alert"]
+
+        # Anomali skoru: MOG2 fg oranı + nesne sayısı ağırlıklı
+        score = min(1.0, fg_ratio * 15.0 + len(nesneler) * 0.15)
+        self.score_hist.append(score)
+        if is_alert:
+            self.toplam_uyari += 1
+
+        severity = ("HIGH"   if len(nesneler) >= 2 else
+                    "MEDIUM" if len(nesneler) == 1 else "NONE")
+        return {
+            "is_alert":    is_alert,
+            "severity":    severity,
+            "score":       score,
+            "fg_mask":     fg_mask,
+            "fg_ratio":    fg_ratio,
+            "nesneler":    nesneler,
+            "kare_no":     self.kare_no,
+            "toplam_uyari": self.toplam_uyari,
+        }
+
+
+def anomali_isle(frame: np.ndarray, durum: "_AnomalDurumu") -> np.ndarray:
+    """Kare → ANOMALİ paneli (480×360 BGR).
+
+    patrol/alert sözleşmesi: is_alert, severity, score gösterilir.
+    Özgür'ün hiçbir dosyası değiştirilmedi — bağımsız sarmalayıcı.
+    """
+    r = durum.isle(frame)
+
+    # Panel arka planı: fg mask üstüne canlı kare karışımı
+    if r["fg_mask"] is not None:
+        fg_bgr = cv2.cvtColor(r["fg_mask"], cv2.COLOR_GRAY2BGR)
+        live   = _letterbox(frame, PANEL_W, PANEL_H)
+        fg_res = _letterbox(fg_bgr, PANEL_W, PANEL_H)
+        panel  = cv2.addWeighted(live, 0.45, fg_res, 0.55, 0)
+    else:
+        panel = _letterbox(frame, PANEL_W, PANEL_H)
+
+    # Durum bandı
+    brenk = (0, 0, 200) if r["is_alert"] else (30, 180, 60)
+    btxt  = f">>> UYARI <<< [{r['severity']}]" if r["is_alert"] else "Normal"
+    cv2.rectangle(panel, (0, 0), (PANEL_W, 28), (0, 0, 0), -1)
+    cv2.putText(panel, btxt, (8, 20), cv2.FONT_HERSHEY_SIMPLEX,
+                0.60, brenk, 2, cv2.LINE_AA)
+
+    # Tespit kutuları
+    for i, obj in enumerate(r["nesneler"][:3]):
+        cx = obj["x"] * PANEL_W // max(frame.shape[1], 1)
+        cy = obj["y"] * PANEL_H // max(frame.shape[0], 1)
+        cw = obj["w"] * PANEL_W // max(frame.shape[1], 1)
+        ch = obj["h"] * PANEL_H // max(frame.shape[0], 1)
+        cv2.rectangle(panel, (cx, cy), (cx + cw, cy + ch), (0, 0, 220), 2)
+        cv2.putText(panel, f"#{i+1}", (cx, max(cy - 4, 12)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 220), 1)
+
+    # Alt bilgi
+    cv2.putText(panel, f"Score:{r['score']:.3f}  fg:{r['fg_ratio']:.4f}",
+                (8, PANEL_H - 20), cv2.FONT_HERSHEY_SIMPLEX,
+                0.40, (180, 180, 200), 1, cv2.LINE_AA)
+    cv2.putText(panel, f"Uyari:{r['toplam_uyari']}  Kare:{r['kare_no']}",
+                (8, PANEL_H - 6), cv2.FONT_HERSHEY_SIMPLEX,
+                0.38, (140, 140, 160), 1, cv2.LINE_AA)
+
+    # Skor mini-grafik (sağ alt)
+    if len(durum.score_hist) > 1:
+        gw, gh = 120, 36
+        gx0, gy0 = PANEL_W - gw - 4, PANEL_H - gh - 4
+        cv2.rectangle(panel, (gx0, gy0), (PANEL_W - 4, PANEL_H - 4),
+                      (20, 20, 30), -1)
+        vals = list(durum.score_hist)
+        xstep = gw / max(len(vals) - 1, 1)
+        pts = [(int(gx0 + i * xstep),
+                int(gy0 + gh - int(min(v, 1.0) * gh)))
+               for i, v in enumerate(vals)]
+        for k in range(1, len(pts)):
+            cv2.line(panel, pts[k-1], pts[k],
+                     (40, 80, 220) if vals[k] > 0.3 else (80, 200, 120), 1)
+
+    # Çerçeve rengi
+    cv2.rectangle(panel, (0, 0), (PANEL_W - 1, PANEL_H - 1), brenk, 2)
+    return panel
 
 
 # ───────────────────────── ana akış ─────────────────────────
@@ -230,7 +383,9 @@ def main(argv=None) -> int:
                          "yok, değer/birim üretilmez (rastgele videolar için varsayılan)")
     p.add_argument("--gosterge-agirlik",
                     default=str(GOSTERGE_REPO / "runs/detect/models/ip5/karisik/weights/best.pt"))
-    p.add_argument("--algilama-agirlik", default=str(GOSTERGE_REPO / "yolov8n.pt"),
+    p.add_argument("--algilama-agirlik",
+                    default=str(GOSTERGE_REPO / "yolov8n.pt") if (GOSTERGE_REPO / "yolov8n.pt").exists()
+                    else "yolov8n.pt",
                     help="ALGILAMA panelinde kullanılacak YOLO ağırlığı (Bedirhan'ın varsayılanıyla aynı: yolov8n.pt)")
     p.add_argument("--conf", type=float, default=0.25, help="GÖSTERGE tespit güven eşiği")
     p.add_argument("--out", default=str(DEMO_DIR / "cikti" / "demo.mp4"))
@@ -258,6 +413,9 @@ def main(argv=None) -> int:
         gauge = gmodel = None
         gosterge_hata = str(e)
         print(f"[UYARI] GÖSTERGE hazırlanamadı: {e}")
+
+    print("[BİLGİ] ANOMALİ modülü (IP8+IP9 sarmalayıcı — Özgür Kotbaş) hazırlanıyor...")
+    anomali_durumu = _AnomalDurumu()
 
     print("[BİLGİ] ALGILAMA modülü (demo sarmalayıcı) yükleniyor...")
     try:
@@ -303,11 +461,11 @@ def main(argv=None) -> int:
             p2 = _basliklandir(p2, "ALGILAMA (Bedirhan)")
 
             try:
-                p3 = anomali_isle(frame)
-                p3 = _basliklandir(p3, "ANOMALI (Ozgur)")
+                p3 = anomali_isle(frame, anomali_durumu)
+                p3 = _basliklandir(p3, "ANOMALI (Ozgur) — IP8+MOG2")
             except Exception as e:
                 p3 = _hata_paneli(frame, str(e))
-                p3 = _basliklandir(p3, "ANOMALI (Ozgur)")
+                p3 = _basliklandir(p3, "ANOMALI (Ozgur) [HATA]")
 
             birlesik = np.hstack([p1, p2, p3])
             gecen = time.perf_counter() - t0
