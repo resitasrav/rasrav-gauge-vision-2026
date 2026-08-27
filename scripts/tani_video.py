@@ -40,7 +40,7 @@ from gauge_vision.pipeline import detect_objects, read_all_analog
 # doğrulama kümesinde `gauge` mAP50'yi 0,3925 → 0,9950 çıkardı ama **videolarda
 # gerileme üretti** ve eşik düşürmek (conf 0,25 → 0,10) kurtarmadı. Ayrıntı
 # `docs/devam_notu.md` §2d.
-VARSAYILAN_AGIRLIK = "runs/detect/models/ip5/cok_sinif/weights/best.pt"
+VARSAYILAN_AGIRLIK = "runs/detect/models/ip5/keypad5/weights/best.pt"
 METRIK_YOLU = Path("outputs/metrics/video_tani.json")
 FIGUR_KLASORU = Path("outputs/figures/video_tani")
 

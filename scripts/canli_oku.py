@@ -35,7 +35,7 @@ from gauge_vision.pipeline import read_gauge
 from gauge_vision.read.calibrate import DURUM_OK
 from gauge_vision.temporal import TemporalConfig, TemporalStabilizer
 
-VARSAYILAN_AGIRLIK = "runs/detect/models/ip5/karisik/weights/best.pt"
+VARSAYILAN_AGIRLIK = "runs/detect/models/ip5/keypad5/weights/best.pt"
 CIKTI_DIZINI = "outputs/figures"
 
 RENK_OK = (60, 200, 60)

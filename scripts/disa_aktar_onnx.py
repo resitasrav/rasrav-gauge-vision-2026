@@ -43,7 +43,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-VARSAYILAN_AGIRLIK = "runs/detect/models/ip5/cok_sinif/weights/best.pt"
+VARSAYILAN_AGIRLIK = "runs/detect/models/ip5/keypad5/weights/best.pt"
 METRIK_YOLU = Path("outputs/metrics/onnx_aktarim.json")
 
 # Kutuların "aynı" sayılması için izin verilen sapma (piksel). Zincirin merkez
