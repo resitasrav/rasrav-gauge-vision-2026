@@ -191,11 +191,72 @@ class AnalogKutuOkuma:
         return self.needle is not None
 
 
+# --- KANIT KAPILARI: "burada gerçekten kadran ve ibre var mı?" -----------------
+# 27.08'de 14 gerçek video (9573 kare) bu yoldan geçirildi. Karede TEK BİR kadran
+# olmayan beş videoda (fabrika geniş çekimi, forklift deposu, buton panosu,
+# kontrol panosu) 383 "gauge" kutusu üretildi ve **hepsi başarıyla okundu** —
+# kapsam 1,00, yani zincir bir kez bile "okuyamadım" demedi. Gözle doğrulanan
+# örnekler: forkliftin ön tekerleği (açı 44°), elektrikli vantilatör (dönen
+# kanatlar her karede başka açı), beyaz ikaz lambası camı, ve panoya BASILI
+# direnç sembolü (tüm kare kadran sanılıp 505 px çember çizildi).
+#
+# `read_frame` (kimliği beyan edilen yol) bu hatadan İP15 eşiğiyle korunuyor:
+# birleşik güven 0,7'nin altındaysa `unreadable`. `read_all_analog` İP11 ile dün
+# eklendi ve o kapı ona konmamıştı — delik buydu.
+#
+# İki kapı DİK ölçüyor, o yüzden ikisi birden gerekiyor:
+#   tespit güveni → "bu kutu gerçekten gösterge mi"
+#   ibre güveni   → "bu çemberin içinde ibre var mı"
+# Ölçülen dağılımlar (720 gerçek kadran okuması / 64 yanlış pozitif):
+#   tespit güveni: gerçek medyan 0,909 (p05 0,286) · yanlış medyan 0,394, max 0,675
+#   ibre  güveni: gerçek medyan 0,596 (p10 0,079) · yanlış medyan 0,109
+# Tek başına ibre güveni YETMİYOR: kontrol panosundaki basılı direnç sembolü
+# gerçekten merkezden uzanan kesintisiz koyu bir şerit, ibre güveni 0,94'e
+# çıkıyor. Onu eleyen tespit güveni (0,27-0,38).
+#
+# Eşiğin bedeli KORUNMASI GEREKEN popülasyonda ayrıca ölçüldü — bu dosyadaki
+# ders (bkz. read/needle.py "DENENDİ ve ELENDİ") kapının önce İP8'i öldürmesiydi.
+# Sentetik v1 setinde ibre güveni: temiz min 0,907 · jpeg 40 min 0,907 ·
+# çap 64 px min 0,135 · merkez %2 sarsıntı min 0,576 · %4 sarsıntı min 0,218.
+# 0,15 eşiği bu popülasyonun en kötü hâlinde bile %1 kayıp veriyor.
+#
+# Birlikte: gerçek okumaların %71,5'i korunuyor, yanlış pozitiflerin %89'u
+# eleniyor. Kapsam kaybı bilinçli — devriye saniyede bir okuma istiyor, gösterge
+# saniyede 25 kez değişmiyor; 3. kural yanlış okumaktansa okumamayı söylüyor.
+#
+# --- YENİDEN ÖLÇÜLDÜ (27.08 akşamı, 5 sınıflı `keypad5` ağırlığı) --------------
+# İlk eşikler (0,45 / 0,15) ESKİ ağırlığın dağılımından seçilmişti. Zor
+# negatiflerle eğitilen yeni model yanlış pozitiflerin çoğunu KAYNAĞINDA
+# kestiği için aynı eşikler gereksiz sıkı kaldı. Kapılar kapatılıp ham dağılım
+# yeniden ölçüldü (6 kadran-yok + 4 kadran-var videosu, 100'er kare):
+#
+#                       eski model     yeni model
+#   ham yanlış okuma        208            18      (kaynağında -%91)
+#   yanlış `ibre` medyanı   0,121          0,000   (çoğu hiç kanıt üretmiyor)
+#
+#   eşik (tespit/ibre)   gerçek tutulan   yanlış kalan
+#        0,45 / 0,15          %67,6            1
+#        0,30 / 0,10          %74,4            2      ← seçilen
+#        0,25 / 0,05          %80,7            2
+#
+# 0,25/0,05 bu sette daha iyi ÖLÇÜYOR ama seçilmedi: sentetik popülasyonda ibre
+# güveninin en kötü hâli 0,135 (64 px çap) ve 0,10 ona pay bırakıyor, 0,05
+# bırakmıyor. Ayrıca altı videoya son basamağına kadar ayar yapmak, ölçtüğümüz
+# şeyi genelleme sanmak olurdu — 26.08'de mAP 0,995'in alan dışında hiçbir şey
+# ifade etmediği tam olarak böyle öğrenildi.
+#
+# İkisi de parametre: ağırlık her değiştiğinde bu tablo yeniden çıkarılmalı.
+MIN_TESPIT_GUVENI = 0.30
+MIN_IBRE_KANITI = 0.10
+
+
 def read_all_analog(
     image: np.ndarray,
     model,
     *,
     conf: float = 0.25,
+    min_tespit: float = MIN_TESPIT_GUVENI,
+    min_ibre: float = MIN_IBRE_KANITI,
     tespitler: list["Tespit"] | None = None,
 ) -> list[AnalogKutuOkuma]:
     """Karedeki BÜTÜN analog kutulara daire rafinesi + ibre açısı uygular.
@@ -217,6 +278,13 @@ def read_all_analog(
     for t in tespitler:
         if t.tip != "analog":
             continue
+        # Reddedilen kutu da listeye giriyor (sessizce düşürülmüyor): demo onu
+        # "tespit edildi ama okunmadı" diye çizebilsin, sebep izlenebilir olsun.
+        if t.conf < min_tespit:
+            cikti.append(AnalogKutuOkuma(
+                t.box_xyxy, t.conf, None, 0.0, False, None,
+                f"tespit güveni düşük ({t.conf:.2f} < {min_tespit:.2f})"))
+            continue
         merkez, yaricap = dial_from_box(t.box_xyxy)
         if yaricap < MIN_YARICAP_PX:
             cikti.append(AnalogKutuOkuma(t.box_xyxy, t.conf, None, 0.0, False,
@@ -227,6 +295,13 @@ def read_all_analog(
         if rafine:
             merkez, yaricap = daire.center_px, daire.radius_px
         aci = read_needle_angle(image, merkez, yaricap, method="polar")
+        if aci is not None and aci.confidence < min_ibre:
+            # Açı ÜRETİLDİ ama kanıtı zayıf: çemberin içinde ibre imzası yok.
+            # Düz lamba camı, teker göbeği ve pano yüzeyi buradan eleniyor.
+            cikti.append(AnalogKutuOkuma(
+                t.box_xyxy, t.conf, merkez, yaricap, rafine, None,
+                f"ibre kanıtı zayıf ({aci.confidence:.2f} < {min_ibre:.2f})"))
+            continue
         cikti.append(AnalogKutuOkuma(
             t.box_xyxy, t.conf, merkez, yaricap, rafine, aci,
             "" if aci is not None else "ibre bulunamadı"))

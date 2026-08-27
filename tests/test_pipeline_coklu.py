@@ -15,7 +15,8 @@ from __future__ import annotations
 import numpy as np
 
 from gauge_vision.config import load_gauges
-from gauge_vision.pipeline import AnalogKutuOkuma, Tespit, read_all_analog
+from gauge_vision.pipeline import (MIN_TESPIT_GUVENI, AnalogKutuOkuma, Tespit,
+                                   read_all_analog)
 from gauge_vision.synth.dial import render_analog
 
 GAUGES = load_gauges()
@@ -119,3 +120,72 @@ def test_cok_kucuk_kutu_sayi_uretmez():
     assert len(okumalar) == 1
     assert not okumalar[0].ok
     assert "küçük" in okumalar[0].reason
+
+
+# --- KANIT KAPILARI ------------------------------------------------------------
+# 27.08'de 14 gerçek videoda ölçülen kusur: kadran OLMAYAN karelerde 383 kutu
+# üretildi ve hepsi "başarıyla" okundu (kapsam 1,00). Teker, vantilatör, lamba
+# camı ve panoya basılı direnç sembolü ibre sanıldı. Kapılar bunu keser.
+
+def test_IBRESIZ_yuzey_sayi_uretmez():
+    """Düz bir yüzeyde ibre yokken açı uydurulmaz.
+
+    Gözlenen hâli: 10.mp4'te beyaz ikaz lambasının düz camı kadran sanıldı,
+    üstüne çember çizilip "açı -143°" yazıldı. Kadran benzeri bir kutu var ama
+    içinde ibre imzası yok — kapı tam olarak bunu ölçüyor.
+    """
+    sahne = np.full((300, 300, 3), 190, dtype=np.uint8)
+    tespitler = [Tespit(box_xyxy=(50.0, 50.0, 250.0, 250.0), conf=0.9,
+                        sinif="gauge", tip="analog")]
+
+    okumalar = read_all_analog(sahne, model=None, tespitler=tespitler)
+
+    assert len(okumalar) == 1
+    assert not okumalar[0].ok, f"düz yüzeyde açı üretildi: {okumalar[0].needle}"
+
+
+def test_dusuk_tespit_guveni_okunmaz_ama_KUTU_KAYBOLMAZ():
+    """Zayıf tespit okunmaz; kutu yine listede kalır, sebebiyle.
+
+    Sessizce düşürmek demoyu yanıltır ("hiç tespit yok" gibi görünür) ve hata
+    ayıklamayı imkânsızlaştırır. 3. kural okumamayı söylüyor, saklamayı değil.
+    """
+    sahne, tespitler = _sahne([_kadran("PT-101", 5.0)])
+    # Güven EŞİKTEN TÜRETİLİYOR, sabit yazılmıyor: eşik ölçümle yeniden
+    # ayarlanan bir sayı (0,45 → 0,30, 27.08) ve sabit yazılsaydı test her
+    # ayarda sebepsiz kırılırdı. Sınanan şey eşiğin DEĞERİ değil, altında
+    # kalan bir kutunun okunmayıp yine de listede kalması.
+    zayif = [Tespit(box_xyxy=tespitler[0].box_xyxy, conf=MIN_TESPIT_GUVENI - 0.05,
+                    sinif="gauge", tip="analog")]
+
+    okumalar = read_all_analog(sahne, model=None, tespitler=zayif)
+
+    assert len(okumalar) == 1
+    assert not okumalar[0].ok
+    assert "tespit güveni" in okumalar[0].reason
+
+
+def test_kapilar_GERCEK_kadrani_elemiyor():
+    """Kapılar sağlam kadranı kesmemeli — önceki kapı denemesi İP8'i öldürmüştü.
+
+    `read/needle.py`'deki "DENENDİ ve ELENDİ" bloğunun dersi: bir kapı yanlış
+    pozitifi elerken doğru okumayı da eleyebilir ve bu ancak ölçülerek görülür.
+    Sentetik sette ibre güveni en kötü hâlinde (çap 64 px) 0,135, %4 merkez
+    sarsıntısında 0,218 ölçüldü; temiz kadran 0,9 üstünde olmalı.
+    """
+    sahne, tespitler = _sahne([_kadran("PT-101", 2.0), _kadran("PT-101", 8.0)])
+
+    okumalar = read_all_analog(sahne, model=None, tespitler=tespitler)
+
+    assert all(o.ok for o in okumalar), [o.reason for o in okumalar]
+
+
+def test_kapi_esikleri_disaridan_gecersiz_kilinabilir():
+    """Eşikler parametre: yeniden eğitilmiş modelde yeniden ölçülüp değişecek."""
+    sahne, tespitler = _sahne([_kadran("PT-101", 5.0)])
+    zayif = [Tespit(box_xyxy=tespitler[0].box_xyxy, conf=0.30,
+                    sinif="gauge", tip="analog")]
+
+    kapali = read_all_analog(sahne, model=None, tespitler=zayif, min_tespit=0.0)
+
+    assert kapali[0].ok, kapali[0].reason
