@@ -45,6 +45,45 @@ BILEZIK_PAYI = 1.28               # bilezik yarıçapı / buton yarıçapı
 ETIKET_BGR = (200, 202, 205)
 
 
+# --- Seçici anahtar (1-0 şalteri) ---
+SELECTOR_GOVDE_BGR = (150, 152, 156)   # krom/plastik gövde — pano üstünde açık
+SELECTOR_KOL_BGR = (28, 28, 30)        # kol koyu: okuyucu Otsu ile onu ayırıyor
+SELECTOR_KOL_UZUNLUK = 0.92            # kol yarı-boyu / buton yarıçapı
+SELECTOR_KOL_KALINLIK = 0.30           # kol kalınlığı / buton yarıçapı
+SELECTOR_GOBEK_ORANI = 0.22
+
+
+def _selector_ciz(img: np.ndarray, merkez: tuple[int, int], r: int,
+                  aci_deg: float) -> None:
+    """Seçici anahtarı çizer: açık gövde üstünde koyu, uzun, ince bir kol.
+
+    Kolun UZUN VE İNCE olması şart — okuyucu (`read/keypad._selector_durumu`)
+    kanıt kapısı olarak PCA uzamasını kullanıyor ve yuvarlağa yakın bir şekil
+    "kol yok" diye reddedilir. Bu, düz bir yüzeyde Otsu'nun bulduğu gürültü
+    öbeğini eleyen kapının ta kendisi; üretecin onu geçebilmesi gerekiyor.
+    """
+    import math
+    cx, cy = merkez
+    cv2.circle(img, (cx, cy), r, SELECTOR_GOVDE_BGR, -1, cv2.LINE_AA)
+    yari = r * SELECTOR_KOL_UZUNLUK
+    rad = math.radians(aci_deg)
+    # y ekseni aşağı arttığı için eksi işaret — dosya başındaki konvansiyon.
+    dx, dy = yari * math.cos(rad), -yari * math.sin(rad)
+    p1 = (int(round(cx - dx)), int(round(cy - dy)))
+    p2 = (int(round(cx + dx)), int(round(cy + dy)))
+    cv2.line(img, p1, p2, SELECTOR_KOL_BGR,
+             max(2, int(r * SELECTOR_KOL_KALINLIK)), cv2.LINE_AA)
+    cv2.circle(img, (cx, cy), max(2, int(r * SELECTOR_GOBEK_ORANI)),
+               SELECTOR_KOL_BGR, -1, cv2.LINE_AA)
+
+
+def _etiket_ciz(img: np.ndarray, metin: str, cx: int, cy: int, r: int) -> None:
+    olcek = max(0.3, r / 55.0)
+    (tw, th), _ = cv2.getTextSize(metin, cv2.FONT_HERSHEY_SIMPLEX, olcek, 1)
+    cv2.putText(img, metin, (cx - tw // 2, cy + int(r * BILEZIK_PAYI) + th + 6),
+                cv2.FONT_HERSHEY_SIMPLEX, olcek, ETIKET_BGR, 1, cv2.LINE_AA)
+
+
 @dataclass(frozen=True)
 class KeypadTruth:
     """Çizilen panelin bilinen hâli — ölçüm bunun üstünden yapılır."""
@@ -113,6 +152,18 @@ def render_keypad(
         r = int(float(b["radius"]) * min(h, w))
 
         cv2.circle(img, (cx, cy), int(r * BILEZIK_PAYI), BILEZIK_BGR, -1, cv2.LINE_AA)
+
+        if str(b.get("kind", "lamp")) == "selector":
+            # Seçici anahtar: ışığı yok, durumu KOLUN AÇISI söylüyor. Açı
+            # envanterden (`lever_angles`) geliyor — okuyucunun baktığı alanın
+            # ta kendisi, böylece üreteçle okuyucu yapı gereği aynı varsayımı
+            # paylaşıyor (vana tarafında pahalıya öğrenilen ders).
+            _selector_ciz(img, (cx, cy), r,
+                          float((b.get("lever_angles") or {})[durum]))
+            kutular[bid] = (cx - r, cy - r, cx + r, cy + r)
+            if etiket_goster and b.get("label"):
+                _etiket_ciz(img, str(b["label"]), cx, cy, r)
+            continue
 
         if durum == "off":
             # Sönük buton: o butonun kendi renginin koyusu. Hangi renk olduğu

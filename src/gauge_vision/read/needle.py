@@ -133,10 +133,27 @@ def read_needle_angle(
     radius: float,
     *,
     method: str = "polar",
+    aci_penceresi: tuple[float, float] | None = None,
 ) -> NeedleReading | None:
     """`center`/`radius` ile verilen kadranda ibrenin görüntüdeki açısını ölçer.
 
     Aday bulunamazsa None döner (yanlış okumaktansa okumamak — 3. kural).
+
+    `aci_penceresi` verilirse tarama YALNIZ o açı aralığında yapılır (derece,
+    dosyanın konvansiyonu; sarma serbest, örn. (150, 30) sağdan sola yayı
+    değil soldan sağa 120°'lik yayı anlatır — sıra önemlidir).
+
+    **Neden gerekli:** kutupsal tarama "merkezden çıkan ışın boyunca kesintisiz
+    koyu şerit" arıyor ve yuvarlak kadranda tarama halkası her yönde kadran
+    yüzünün içinde kalıyor. Pano tipi metrede (`face.shape: panel`) pivot alt
+    kenara yakın; aşağı bakan ışınlar siyah ÇERÇEVEYE çarpıyor ve orada da
+    kesintisiz koyu bir şerit var. Ölçüldü (27.08, 300 kare, EM-501): pencere
+    olmadan ortalama açı hatası **107,6°**, okumaların 45'i 180° ters. Yani
+    tarama ibreyi değil çerçeveyi buluyordu.
+
+    Pencere görüntüden çıkarılmıyor, envanterdeki `scale.angle_min/angle_max`
+    zaten yayı beyan ediyor — 2. kural. Yuvarlak kadranda varsayılan None'dır
+    ve davranış değişmez (İP6'nın 0,123°'si buna bağlı).
     """
     if method not in METHODS:
         raise ValueError(f"bilinmeyen yöntem '{method}' — {METHODS}")
@@ -158,8 +175,9 @@ def read_needle_angle(
     gray = kirpim if kirpim.ndim == 2 else cv2.cvtColor(kirpim, cv2.COLOR_BGR2GRAY)
     yerel_merkez = (center[0] - ofset[0], center[1] - ofset[1])
 
-    okuma = (_read_polar if method == "polar" else _read_hough)(
-        gray, yerel_merkez, float(radius))
+    okuma = (_read_polar(gray, yerel_merkez, float(radius), aci_penceresi)
+             if method == "polar"
+             else _read_hough(gray, yerel_merkez, float(radius)))
     if okuma is None or ofset == (0, 0):
         return okuma
     return replace(okuma, tip_px=(okuma.tip_px[0] + ofset[0],
@@ -196,7 +214,29 @@ def _roi_kirp(image: np.ndarray, center: tuple[int, int],
 
 # ------------------------------------------------------------ kutupsal tarama --
 
-def _read_polar(gray: np.ndarray, center: tuple[int, int], radius: float) -> NeedleReading | None:
+PENCERE_PAYI_DEG = 8.0     # yayın iki ucuna pay: ibre skala sonunu biraz aşabilir
+
+
+def _pencere_maskesi(aci_penceresi: tuple[float, float] | None) -> np.ndarray | None:
+    """Tarama açıları için boolean maske; pencere yoksa None (tam tarama).
+
+    Maske uygulanıyor, dizi KISALTILMIYOR: `_contiguous_arcs` 0°/360° sarmasını
+    indis komşuluğuyla çözüyor ve diziyi kırpmak o mantığı sessizce bozardı.
+    """
+    if aci_penceresi is None:
+        return None
+    a0, a1 = aci_penceresi
+    acilar = np.arange(0.0, 360.0, SCAN_STEP_DEG)
+    # Yayın uzunluğu a0'dan a1'e SAAT TERSİ yönde ölçülüyor; envanter hangi
+    # yönde beyan ettiyse o yay alınır (150→30 ile 30→150 farklı yaylardır).
+    yay = (a1 - a0) % 360.0
+    fark = (acilar - a0) % 360.0
+    pay = PENCERE_PAYI_DEG
+    return (fark <= yay + pay) | (fark >= 360.0 - pay)
+
+
+def _read_polar(gray: np.ndarray, center: tuple[int, int], radius: float,
+                aci_penceresi: tuple[float, float] | None = None) -> NeedleReading | None:
     """Merkezden çıkan ışınlar boyunca kesintisiz koyu VEYA açık şeridi arar.
 
     Kadran çizgileri ve sayı etiketleri de zeminden farklı renktedir; ayırt
@@ -212,19 +252,25 @@ def _read_polar(gray: np.ndarray, center: tuple[int, int], radius: float) -> Nee
     dene, ibre imzasına (dar plato = yüksek güven) hangisi daha çok uyuyorsa
     onu kullan — "cevap makul mü" değil "kanıt hangisinde güçlü" sorusu.
     """
+    pencere = _pencere_maskesi(aci_penceresi)
     en_iyi: NeedleReading | None = None
     for koyu in (True, False):
         maske = _polarity_mask(gray, center, radius, koyu)
         if maske is None:
             continue
-        aday = _polar_from_mask(maske, center, radius)
+        aday = _polar_from_mask(maske, center, radius, pencere)
         if aday is not None and (en_iyi is None or aday.confidence > en_iyi.confidence):
             en_iyi = aday
     return en_iyi
 
 
-def _polar_from_mask(maske: np.ndarray, center: tuple[int, int], radius: float) -> NeedleReading | None:
+def _polar_from_mask(maske: np.ndarray, center: tuple[int, int], radius: float,
+                     pencere: np.ndarray | None = None) -> NeedleReading | None:
     runs = _radial_runs(maske, center, radius)
+    if pencere is not None:
+        # Pencere dışı açılar sıfırlanıyor: orada ne varsa (çerçeve, gövde,
+        # arka plan) ibre olamaz çünkü envanter yayı beyan etti.
+        runs = np.where(pencere, runs, 0)
     if runs.max() <= 0:
         return None
 

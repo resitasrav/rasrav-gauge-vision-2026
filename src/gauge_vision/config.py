@@ -61,6 +61,24 @@ class Scale:
             return (self.angle_min - self.angle_max) % 360
         return (self.angle_max - self.angle_min) % 360
 
+    @property
+    def ccw_araligi(self) -> tuple[float, float]:
+        """Skalanın kapladığı yay, CCW yönünde (başlangıç, bitiş) olarak.
+
+        İbrenin fiziksel olarak bulunabileceği açı aralığı budur; okuyucunun
+        tarama penceresi buradan geliyor (`read_needle_angle(aci_penceresi=…)`).
+
+        `cw` kadranda min'den max'a giderken açı AZALIR, dolayısıyla CCW yönünde
+        yay `angle_max`'tan `angle_min`'e uzanır — sıra TERSİNE çevrilmeli.
+        Bu ters çevirmeyi atlamak sessizce YANLIŞ yayı seçer: EM-501'de
+        (150→30, cw) düz çıkarma 120° yerine 240°'lik yayı verir ve pencerenin
+        eleyeceği çerçeve tam o fazladan 120°'nin içinde kalır (27.08 ölçümü:
+        pencere açık ama hata 107,6°'de sabit kaldı — hata buradaydı).
+        """
+        if self.direction == "cw":
+            return (self.angle_max, self.angle_min)
+        return (self.angle_min, self.angle_max)
+
     def fraction_for_value(self, value: float) -> float:
         """`value` kadranın neresinde — 0.0 (min ucu) ile 1.0 (max ucu) arası oran.
 
@@ -152,6 +170,9 @@ class Gauge:
     digits: dict[str, Any] | None = None # digital
     states: list[dict[str, Any]] = field(default_factory=list)  # lamp / valve
     buttons: list[dict[str, Any]] = field(default_factory=list)  # keypad
+    # Kadran yüzünün GEOMETRİSİ — yalnız analogda anlamlı. Boşsa yuvarlak kadran
+    # varsayılır ve zincir bugünkü davranışını sürdürür (bkz. `face_shape`).
+    face: dict[str, Any] = field(default_factory=dict)
     alarm: dict[str, float] = field(default_factory=dict)
     synthetic: dict[str, Any] = field(default_factory=dict)  # İP3 çizim ayarları
     notes: str | None = None
@@ -175,6 +196,41 @@ class Gauge:
         """
         return {s["name"]: float(s["lever_angle"]) % 180.0
                 for s in self.states if s.get("lever_angle") is not None}
+
+    @property
+    def face_shape(self) -> str:
+        """`round` (varsayılan) veya `panel` — kare çerçeveli, yay skalalı metre.
+
+        Elektrik odalarındaki pano tipi ampermetre/voltmetrelerde çerçeve
+        karedir, skala ~90°'lik bir yaydır ve ibre kutunun ORTASINDAN değil
+        kenara yakın bir noktadan döner. Yuvarlak kadran için doğru olan üç
+        varsayımın üçü de burada yanlış (bkz. `pivot_ratio`).
+        """
+        return str(self.face.get("shape", "round"))
+
+    @property
+    def pivot_ratio(self) -> tuple[float, float]:
+        """İbrenin dönme noktası, TESPİT KUTUSUNA oran. Varsayılan: kutunun ortası.
+
+        Neden envanterde: dönme noktası göstergenin MONTAJ/GEOMETRİ bilgisidir,
+        algoritmanın değil — `state_angles`'taki `lever_angle` ile aynı gerekçe.
+        Görüntüden kestirmek denenebilirdi ama kadranın kendisi bile ancak %0,6
+        oranında çember olarak doğrulanabiliyor (bkz. detect/refine.py 27.08
+        ölçümü); ondan daha zayıf bir kanıtla pivot aramak sessiz hata üretir.
+        """
+        p = self.face.get("pivot") or (0.5, 0.5)
+        return (float(p[0]), float(p[1]))
+
+    @property
+    def sweep_radius_ratio(self) -> float | None:
+        """İbre süpürme yarıçapı / kutu GENİŞLİĞİ. None → kutudan türet.
+
+        Yuvarlak kadranda yarıçap kutunun yarısıdır; yay skalalı metrede ibre
+        kutu yüksekliğinin neredeyse tamamı kadar uzanabilir, çünkü pivot
+        kenardadır. Tek bir orandan türetmek ikisinden birini bozar.
+        """
+        r = self.face.get("sweep_radius")
+        return None if r is None else float(r)
 
     @property
     def button_names(self) -> list[str]:
@@ -268,6 +324,14 @@ def load_gauges(path: str | Path | None = None) -> dict[str, Gauge]:
     return gauges
 
 
+# Panolarda iki farklı buton türü var ve FARKLI FİZİKLE okunurlar: ışıklı
+# basmalı buton merceğinin renginden, seçici anahtar (1-0 şalteri) kolunun
+# konumundan. İkincisini renkle okumak "0" ile "1"i ayırt edemez.
+BUTON_TURLERI = ("lamp", "selector")
+# İki selector konumu bundan yakınsa kol açısı onları ayıramaz.
+MIN_SELECTOR_AYRIMI_DEG = 25.0
+
+
 def _dogrula_butonlar(entry: dict[str, Any], gid: str, where: str) -> None:
     """Buton panelinin (`keypad`) yerleşim ve kural beyanlarını sınar.
 
@@ -320,6 +384,36 @@ def _dogrula_butonlar(entry: dict[str, Any], gid: str, where: str) -> None:
         durumlar = b.get("states") or []
         if len(durumlar) < 2:
             raise ConfigError(f"{where} ({gid}/{bid}): buton en az 2 durum ister")
+
+        # Seçici anahtar (1-0 şalteri) IŞIKLA değil KOL AÇISIYLA okunur. Açısı
+        # beyan edilmemiş bir selector sessizce hiçbir duruma eşleşmez ve panel
+        # sonsuza kadar `unreadable` döner — hata envanterde, belirtisi okumada.
+        tur = str(b.get("kind", "lamp"))
+        if tur not in BUTON_TURLERI:
+            raise ConfigError(f"{where} ({gid}/{bid}): 'kind' {BUTON_TURLERI} "
+                              f"olmalı, '{tur}' verildi")
+        if tur == "selector":
+            acilar = b.get("lever_angles") or {}
+            eksik = [d for d in durumlar if d not in acilar]
+            if eksik:
+                raise ConfigError(f"{where} ({gid}/{bid}): selector için her durumun "
+                                  f"'lever_angles' değeri olmalı — eksik: {eksik}")
+            try:
+                sayilar = {d: float(acilar[d]) % 180.0 for d in durumlar}
+            except (TypeError, ValueError) as e:
+                raise ConfigError(f"{where} ({gid}/{bid}): lever_angles sayı olmalı — {e}") from e
+            # İki durum birbirine çok yakınsa kol açısı onları ayıramaz; okuma
+            # yazı-turaya döner. Vana tarafındaki ayrım eşiğiyle aynı mantık.
+            adlar = list(sayilar)
+            for i, a in enumerate(adlar):
+                for c in adlar[i + 1:]:
+                    fark = abs(sayilar[a] - sayilar[c]) % 180.0
+                    fark = min(fark, 180.0 - fark)
+                    if fark < MIN_SELECTOR_AYRIMI_DEG:
+                        raise ConfigError(
+                            f"{where} ({gid}/{bid}): '{a}' ve '{c}' kol açıları "
+                            f"{fark:.0f}° ayrık — en az {MIN_SELECTOR_AYRIMI_DEG:.0f}° "
+                            f"gerek, yoksa okuma ikisini ayıramaz")
 
         for ad, ox, oy, orr in daireler:
             if (cx - ox) ** 2 + (cy - oy) ** 2 < (r + orr) ** 2:
@@ -426,6 +520,7 @@ def _build_gauge(entry: dict[str, Any], defaults: dict[str, Any], where: str) ->
         _dogrula_kol_acilari(entry, states, gid, where)
     if gtype == "keypad":
         _dogrula_butonlar(entry, gid, where)
+    _dogrula_face(entry.get("face") or {}, gid, where)
 
     return Gauge(
         id=gid,
@@ -440,6 +535,7 @@ def _build_gauge(entry: dict[str, Any], defaults: dict[str, Any], where: str) ->
         digits=entry.get("digits"),
         states=entry.get("states") or [],
         buttons=entry.get("buttons") or [],
+        face=entry.get("face") or {},
         alarm=entry.get("alarm") or {},
         # Çizim ayarları da defaults < gösterge sırasıyla birleşir: TI-205 sadece
         # tick_major'ı ezip renkleri varsayılandan almaya devam edebilsin diye.
@@ -447,6 +543,38 @@ def _build_gauge(entry: dict[str, Any], defaults: dict[str, Any], where: str) ->
         notes=entry.get("notes"),
         raw=entry,
     )
+
+
+FACE_SEKILLERI = ("round", "panel")
+
+
+def _dogrula_face(face: dict[str, Any], gid: str, where: str) -> None:
+    """Kadran yüzü beyanını sınar.
+
+    Pivot sessiz hata üreten bir alandır: yanlış bir pivot okumayı kırmaz,
+    KAYDIRIR. İbre açısı pivota göre ölçülüyor, dolayısıyla 0,86 yerine 0,68
+    yazmak her okumayı sistematik olarak yanlış yapar ve hiçbir yerde patlamaz.
+    Bu yüzden aralık kontrolü şart — 0-1 dışına çıkan bir oran zaten kutu
+    dışını gösterir ve mutlaka yazım hatasıdır.
+    """
+    if not face:
+        return
+    sekil = face.get("shape", "round")
+    if sekil not in FACE_SEKILLERI:
+        raise ConfigError(f"{where} ({gid}): face.shape {FACE_SEKILLERI} "
+                          f"olmalı, '{sekil}' verildi")
+    pivot = face.get("pivot")
+    if pivot is not None:
+        if len(pivot) != 2:
+            raise ConfigError(f"{where} ({gid}): face.pivot iki sayı ister")
+        for ad, v in zip("xy", pivot):
+            if not 0.0 <= float(v) <= 1.0:
+                raise ConfigError(f"{where} ({gid}): face.pivot.{ad} 0-1 "
+                                  f"aralığında olmalı, {v} verildi")
+    r = face.get("sweep_radius")
+    if r is not None and not 0.0 < float(r) <= 2.0:
+        raise ConfigError(f"{where} ({gid}): face.sweep_radius 0-2 aralığında "
+                          f"olmalı, {r} verildi")
 
 
 def _build_scale(raw: dict[str, Any], gid: str, where: str) -> Scale:

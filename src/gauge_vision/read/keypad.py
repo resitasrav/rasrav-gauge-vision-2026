@@ -36,7 +36,8 @@ from gauge_vision.read.calibrate import (
     DURUM_OKUNAMADI,
     GaugeReading,
 )
-from gauge_vision.read.state import _lamba_durumu
+from gauge_vision.read.state import (VANA_MIN_UZAMA, _aci_farki, _kol_acisi,
+                                     _lamba_durumu)
 
 # Buton kesiti, beyan edilen yarıçapın bu katı kadar alınır. 1'den büyük olmalı:
 # `_lamba_durumu` parlaklık referansını merceğin DIŞINDAKİ halkadan alıyor
@@ -76,13 +77,14 @@ KANIT_IC_ORANI = 0.80    # mercek diski
 KANIT_DIS_IC, KANIT_DIS_DIS = 1.40, 1.90   # bileziğin dışındaki pano halkası
 
 
-def _buton_kesiti(image: np.ndarray, merkez_oran, yaricap_oran: float) -> np.ndarray | None:
+def _buton_kesiti(image: np.ndarray, merkez_oran, yaricap_oran: float,
+                  pay: float = KESIT_PAYI) -> np.ndarray | None:
     """Butonun çevresiyle birlikte kesiti. Kare dışına taşarsa sınırlara kırpılır."""
     h, w = image.shape[:2]
     cx, cy = float(merkez_oran[0]) * w, float(merkez_oran[1]) * h
     # Yarıçap oranı kutunun KISA kenarına göre: geniş bir panoda uzun kenara
     # göre alınan yarıçap butonu aşar ve komşusunu içeri alır.
-    r = yaricap_oran * min(h, w) * KESIT_PAYI
+    r = yaricap_oran * min(h, w) * pay
     x1, y1 = max(0, int(cx - r)), max(0, int(cy - r))
     x2, y2 = min(w, int(cx + r)), min(h, int(cy + r))
     if x2 - x1 < MIN_KESIT_PX or y2 - y1 < MIN_KESIT_PX:
@@ -118,6 +120,96 @@ def _buton_kanidi(kesit: np.ndarray) -> float:
     return abs(mercek - pano) / max(pano, 1.0)
 
 
+# --- Seçici anahtar (1-0 şalteri) ----------------------------------------------
+# Panolarda iki farklı buton türü var ve ikisi FARKLI FİZİKLE okunur:
+#
+#   ışıklı basmalı buton  durumu MERCEĞİN RENGİNDEN/parlaklığından gelir
+#   seçici anahtar (1-0)  durumu KOLUN KONUMUNDAN gelir — ışığı yoktur
+#
+# İkincisini renkle okumaya çalışmak sessizce yanlış cevap üretir: sönük bir
+# selector her konumda "off" görünür, yani "0" ile "1" ayırt edilemez.
+#
+# Kol açısı makinesi zaten var (`read/state.py`, vana kolu) ve buraya
+# kopyalanmıyor — aynı işi iki yerde tutmak, birini düzeltip ötekini unutmak
+# demektir (14.08'de mutlak parlaklık eşiği tam olarak böyle üç yere dağılmıştı).
+# Buradaki tek fark, açıların gösterge düzeyinde değil BUTON düzeyinde beyan
+# edilmesi: bir panoda birden çok selector olabilir ve her birinin montajı ayrı.
+SELECTOR_TOLERANS_DEG = 22.0   # buton `tolerance_deg` beyan etmezse
+
+# Selector kesiti lambanınkinden DAR alınır ve bu ölçümle öğrenildi.
+# `KESIT_PAYI = 2.2` lamba için ŞART: parlaklık referansı merceğin dışındaki
+# halkadan geliyor. Selectorde ise kanıt parlaklık değil ŞEKİL ve o pay
+# butonun koyu metal BİLEZİĞİNİ kesite sokuyor. Bilezik bir halkadır, halkanın
+# PCA'sı yönsüzdür: ölçülen (27.08) açı 135,0°/45,0° ile birebir doğru çıkarken
+# uzama 1,08'de kalıyor ve `VANA_MIN_UZAMA`=2,0 kapısı doğru okumayı reddediyordu.
+# 1,05 bileziği dışarıda bırakıp yalnız gövde + kolu alıyor.
+SELECTOR_KESIT_PAYI = 1.05
+
+
+def _daire_maskele(kesit: np.ndarray) -> np.ndarray | None:
+    """Kare kesiti butonun DAİRESEL gövdesine indirger (gri döner).
+
+    Buton yuvarlak, kesit kare. Köşelerde kalan koyu bilezik, eşiklemede ön
+    plana giriyor ve kolla birleşip blob'u kareleştiriyor: ölçülen (27.08) açı
+    135,0° ile birebir doğru çıkarken uzama 1,15'te kalıyordu ve kanıt kapısı
+    doğru okumayı reddediyordu.
+
+    Dışarısı SİLİNMİYOR, gövdenin açık tonuna boyanıyor: sıfırlamak yeni bir
+    koyu bölge yaratır ve aynı sorunu geri getirir.
+    """
+    gri = kesit if kesit.ndim == 2 else cv2.cvtColor(kesit, cv2.COLOR_BGR2GRAY)
+    h, w = gri.shape[:2]
+    r = min(h, w) // 2 - 1
+    if r < 4:
+        return None
+    maske = np.zeros((h, w), np.uint8)
+    cv2.circle(maske, (w // 2, h // 2), r, 255, -1)
+    ic = gri[maske > 0]
+    if ic.size < 32:
+        return None
+    cikti = gri.copy()
+    cikti[maske == 0] = int(np.percentile(ic, 90))
+    return cikti
+
+
+def _selector_durumu(kesit: np.ndarray, buton: dict[str, Any]) -> tuple[str | None, float]:
+    """Seçici anahtarın konumu ve güveni — kol açısından.
+
+    Kanıt kapısı UZAMA: kol uzun ve incedir. Düz bir yüzeyde Otsu gürültüden
+    bir öbek bulabilir ama o öbek uzamaz; `VANA_MIN_UZAMA` bunu eler. İkinci
+    kapı toleranstır — ara konumdaki bir şalter GERÇEK bir durumdur ve "açık"
+    diye yayınlanması, hiç okumamaktan tehlikelidir (3. kural).
+    """
+    govde = _daire_maskele(kesit)
+    if govde is None:
+        return None, 0.0
+    sonuc = _kol_acisi(govde)
+    if sonuc is None:
+        return None, 0.0
+    aci, uzama = sonuc
+    if uzama < VANA_MIN_UZAMA:
+        return None, 0.0
+
+    izinli = list(buton.get("states") or [])
+    beyan = {ad: float(a) % 180.0
+             for ad, a in (buton.get("lever_angles") or {}).items() if ad in izinli}
+    adaylar = sorted(((ad, _aci_farki(aci, hedef)) for ad, hedef in beyan.items()),
+                     key=lambda kv: kv[1])
+    if not adaylar:
+        return None, 0.0
+
+    en_iyi, en_iyi_fark = adaylar[0]
+    # 180° modunda iki açı en fazla 90° ayrık olabilir; tek durumlu beyanda
+    # karşılaştırılacak ikinci aday yoktur, üst sınır odur.
+    ikinci_fark = adaylar[1][1] if len(adaylar) > 1 else 90.0
+    if en_iyi_fark > float(buton.get("tolerance_deg", SELECTOR_TOLERANS_DEG)):
+        return None, 0.0
+
+    # Güven, hedefe YAKINLIKTAN değil öteki durumdan AYRIKLIKTAN geliyor —
+    # `_vana_durumu`'nun 21.08'de ölçülerek düzeltilmiş formülünün aynısı.
+    return en_iyi, float(np.clip((ikinci_fark - en_iyi_fark) / 45.0, 0.0, 1.0))
+
+
 def _kural_eslesiyor(kural: dict[str, Any], durumlar: dict[str, str]) -> bool:
     """Kuralın `when` koşulu okunan durumlara uyuyor mu.
 
@@ -146,17 +238,24 @@ def read_keypad(image: np.ndarray, gauge: Gauge) -> GaugeReading:
     durumlar: dict[str, str] = {}
     guvenler: list[float] = []
     for b in gauge.buttons:
-        kesit = _buton_kesiti(image, b["center"], float(b["radius"]))
+        secici = str(b.get("kind", "lamp")) == "selector"
+        kesit = _buton_kesiti(image, b["center"], float(b["radius"]),
+                              SELECTOR_KESIT_PAYI if secici else KESIT_PAYI)
         if kesit is None:
             return bos(DURUM_OKUNAMADI, 0.0, durumlar)
 
-        # Renk sorulmadan ÖNCE "burada buton var mı" sorulur: sönük buton ile
-        # boş bir yüzey aynı cevabı verir ve ikincisine durum atamak, kameranın
-        # görmediği bir makineyi raporlamaktır.
-        if _buton_kanidi(kesit) < MIN_BUTON_KANITI:
-            return bos(DURUM_OKUNAMADI, 0.0, durumlar)
-
-        ad, guven = _lamba_durumu(kesit, list(b.get("states") or []))
+        if secici:
+            # Seçici anahtarın ışığı yoktur; durumu KOLUN AÇISINDAN gelir.
+            # Kanıt kapısı da farklı (uzama), o yüzden mercek kontrastı
+            # sorulmuyor — burada mercek diye bir şey yok.
+            ad, guven = _selector_durumu(kesit, b)
+        else:
+            # Renk sorulmadan ÖNCE "burada buton var mı" sorulur: sönük buton
+            # ile boş bir yüzey aynı cevabı verir ve ikincisine durum atamak,
+            # kameranın görmediği bir makineyi raporlamaktır.
+            if _buton_kanidi(kesit) < MIN_BUTON_KANITI:
+                return bos(DURUM_OKUNAMADI, 0.0, durumlar)
+            ad, guven = _lamba_durumu(kesit, list(b.get("states") or []))
         if ad is None:
             # Tek bir okunamayan buton tüm bileşimi geçersiz kılar: eksik bir
             # butonla kural eşleştirmek, görmediğin bir lambayı sönük saymaktır.

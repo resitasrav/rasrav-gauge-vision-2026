@@ -375,12 +375,38 @@ def read_gauge(
                        reading=okuma)
 
 
-def dial_from_box(box_xyxy) -> tuple[tuple[int, int], float]:
-    """Tespit kutusundan kadran merkezi ve yarıçapı."""
+def dial_from_box(box_xyxy, gauge: Gauge | None = None) -> tuple[tuple[int, int], float]:
+    """Tespit kutusundan ibrenin dönme noktası ve süpürme yarıçapı.
+
+    Yuvarlak kadranda (varsayılan) üç şey doğrudur ve kod bunları varsayar:
+    dönme noktası kutunun ortasındadır, skala tam çemberdir, yarıçap kutunun
+    yarısıdır. **Pano tipi metrede üçü de yanlıştır** — çerçeve karedir, skala
+    ~90°'lik bir yaydır ve ibre kenara yakın bir noktadan döner. Böyle bir
+    göstergeye kutu merkezi uygulamak okumayı kırmaz, sessizce KAYDIRIR.
+
+    Geometri görüntüden çıkarılmıyor, envanterden geliyor (`face.pivot`,
+    `face.sweep_radius`) — 2. kural. Kestirmek denenebilirdi ama kadranın
+    çember olduğu bile ancak %0,6 oranında doğrulanabiliyor (detect/refine.py,
+    27.08); ondan zayıf bir kanıtla pivot aramak sessiz hata üretir.
+
+    `gauge` verilmezse (kimliksiz yol) yuvarlak kadran varsayılır. Pano tipi
+    metre kimliksiz OKUNAMAZ ve bu bilinçlidir: pivotu bilinmeden ölçülen açı
+    bir sayı üretir ama o sayı hiçbir şeyin karşılığı değildir.
+    """
     x1, y1, x2, y2 = box_xyxy
-    merkez = (round((x1 + x2) / 2), round((y1 + y2) / 2))
-    yaricap = min(x2 - x1, y2 - y1) / 2 * KUTU_YARICAP_ORANI
-    return merkez, yaricap
+    en, boy = x2 - x1, y2 - y1
+    if gauge is None or gauge.face_shape == "round":
+        merkez = (round((x1 + x2) / 2), round((y1 + y2) / 2))
+        return merkez, min(en, boy) / 2 * KUTU_YARICAP_ORANI
+
+    px, py = gauge.pivot_ratio
+    merkez = (round(x1 + px * en), round(y1 + py * boy))
+    oran = gauge.sweep_radius_ratio
+    # Beyan yoksa: pivot kenardaysa ibre kutunun karşı kenarına kadar uzanır.
+    # `max` iki eksene de bakıyor çünkü pivot yatayda da kaymış olabilir.
+    yaricap = (oran * en) if oran is not None else max(
+        en * max(px, 1.0 - px), boy * max(py, 1.0 - py)) * KUTU_YARICAP_ORANI
+    return merkez, float(yaricap)
 
 
 def read_frame(
@@ -423,7 +449,7 @@ def read_frame(
     kutu = tuple(float(v) for v in sonuc.boxes.xyxy[en_iyi].tolist())
     tespit_guveni = float(sonuc.boxes.conf[en_iyi])
 
-    merkez, yaricap = dial_from_box(kutu)
+    merkez, yaricap = dial_from_box(kutu, gauge)
     if yaricap < MIN_YARICAP_PX:
         return _bos(f"kadran çok küçük ({yaricap:.0f} px)", kutu, tespit_guveni)
 
@@ -439,8 +465,12 @@ def read_frame(
 
     # Merkez rafinesi ibre ölçümünden ÖNCE: kutupsal tarama merkeze duyarlıdır,
     # düzeltmeyi sonradan uygulamak açıyı geriye dönük kurtarmaz.
+    # Pano tipi metrede rafine ATLANIYOR: yöntem "kadran çemberinin kenar
+    # gradyanları merkezden geçer" varsayımına dayanıyor, kare çerçevede öyle
+    # bir çember yok. Çalıştırılsaydı ya reddederdi (zararsız ama boşuna) ya da
+    # bezelin köşelerine oturup pivotu envanterin verdiği doğru yerden KAÇIRIRDI.
     rafine_edildi = False
-    if refine:
+    if refine and gauge.face_shape == "round":
         daire = refine_dial(image, merkez, yaricap)
         if daire is not None:
             merkez, yaricap = daire.center_px, daire.radius_px
@@ -451,10 +481,30 @@ def read_frame(
     # merkezden sonra gelmeli — çizgi halkası da merkeze göre taranıyor.
     yatiklik = None
     if roll_deg is None:
-        yatiklik = estimate_roll(image, merkez, yaricap, gauge)
-        roll_deg = yatiklik.roll_deg if yatiklik else 0.0
+        if gauge.face_shape == "panel":
+            # Yatıklık kestirimi kadranın ÇEMBER üstündeki çizgi halkasından
+            # okunuyor; pano metresinde öyle bir halka yok ve yöntem bu
+            # geometride hiç ölçülmedi. Burada yanlış bir yatıklığın bedeli
+            # normalden ağır: açıyı kaydırmakla kalmaz, tarama PENCERESİNİ de
+            # döndürüp ibreyi pencerenin dışında bırakabilir. Bu dosyanın
+            # kendi ilkesi geçerli — yanlış bir yatıklık, düzeltmemekten kötüdür.
+            roll_deg = 0.0
+        else:
+            yatiklik = estimate_roll(image, merkez, yaricap, gauge)
+            roll_deg = yatiklik.roll_deg if yatiklik else 0.0
 
-    aci = read_needle_angle(image, merkez, yaricap, method=method)
+    # Tarama penceresi YALNIZ pano tipinde. Yuvarlak kadranda da yayı sınırlamak
+    # cazip görünüyor (270°'lik bir kadranda 90°'lik ölü bölge var ve 180° ters
+    # okumaların bir kısmı oraya düşüyor olabilir) ama İP6/İP7'nin ölçülmüş
+    # sayıları penceresiz koşuya ait; oraya dokunmak onları geçersiz kılar.
+    # Ayrı bir ölçümle denenecek, körlemesine açılmayacak.
+    pencere = None
+    if gauge.face_shape == "panel":
+        a0, a1 = gauge.scale.ccw_araligi
+        pencere = (a0 + roll_deg, a1 + roll_deg)
+
+    aci = read_needle_angle(image, merkez, yaricap, method=method,
+                            aci_penceresi=pencere)
     if aci is None:
         return _bos("ibre bulunamadı", kutu, tespit_guveni)
 

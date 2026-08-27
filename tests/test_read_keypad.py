@@ -16,17 +16,33 @@ import pytest
 
 from gauge_vision.config import ConfigError, load_gauges
 from gauge_vision.read.calibrate import DURUM_ALARM, DURUM_OKUNAMADI
-from gauge_vision.read.keypad import read_keypad
+from gauge_vision.read.keypad import (SELECTOR_KESIT_PAYI, _buton_kesiti,
+                                      read_keypad)
 from gauge_vision.synth.keypad import render_keypad
 
 GAUGES = load_gauges()
 CP = GAUGES["CP-701"]
 
-CALISIYOR = {"power": "green", "run": "green", "heater": "off", "fault": "off"}
-ISITMALI = {"power": "green", "run": "green", "heater": "yellow", "fault": "off"}
-BEKLIYOR = {"power": "green", "run": "off", "heater": "off", "fault": "off"}
-ENERJI_YOK = {"power": "off", "run": "off", "heater": "off", "fault": "off"}
-ARIZALI = {"power": "green", "run": "green", "heater": "off", "fault": "red"}
+# Selector konumu (`mode`) her bilesime dahil: `render_keypad` eksik buton
+# durumunda BILEREK hata yukseltiyor — sessizce "off" varsaymak, okuyucunun
+# hatasini uretecin varsayimiyla karistirirdi. Makine durumu kurallari `mode`a
+# bakmiyor, o yuzden hangi konumda oldugu bu bes senaryoyu degistirmiyor.
+_MODE = {"mode": "oto"}
+CALISIYOR = {"power": "green", "run": "green", "heater": "off", "fault": "off", **_MODE}
+ISITMALI = {"power": "green", "run": "green", "heater": "yellow", "fault": "off", **_MODE}
+BEKLIYOR = {"power": "green", "run": "off", "heater": "off", "fault": "off", **_MODE}
+ENERJI_YOK = {"power": "off", "run": "off", "heater": "off", "fault": "off", **_MODE}
+ARIZALI = {"power": "green", "run": "green", "heater": "off", "fault": "red", **_MODE}
+
+
+def _tum_butonlar(gauge, ezilen: dict) -> dict:
+    """Her butona bir durum verir; `ezilen` istenenleri degistirir."""
+    bilesim = {}
+    for b in gauge.buttons:
+        durumlar = list(b.get("states") or [])
+        bilesim[b["id"]] = durumlar[-1] if durumlar else "off"
+    bilesim.update(ezilen)
+    return bilesim
 
 
 @pytest.mark.parametrize("durumlar,beklenen", [
@@ -79,7 +95,7 @@ def test_bilinmeyen_bilesim_durum_UYDURMAZ():
     karşılığı yok. Sistem en yakın kurala yuvarlarsa makine durumu sessizce
     yanlış olur; doğru davranış "bilmiyorum" demektir.
     """
-    tuhaf = {"power": "off", "run": "green", "heater": "off", "fault": "off"}
+    tuhaf = {"power": "off", "run": "green", "heater": "off", "fault": "off", **_MODE}
     img, truth = render_keypad(CP, tuhaf)
 
     # `enerji_yok` kuralı yalnız `power: off` istiyor ve bu bileşim ona uyuyor;
@@ -222,3 +238,80 @@ def test_yerlesim_envanterden_geliyor():
 
     assert okuma.value != "arizali", (
         "butonların yeri değiştiği hâlde aynı sonuç çıktı — yerleşim koda gömülü")
+
+
+# --- SEÇİCİ ANAHTAR (1-0 şalteri) ----------------------------------------------
+# Panoda iki farklı buton türü var ve FARKLI FİZİKLE okunuyorlar: ışıklı basmalı
+# buton merceğin renginden, seçici anahtar kolun konumundan. İkincisini renkle
+# okumaya çalışmak "0" ile "1"i ayırt edemez — sönük bir selector her konumda
+# aynı görünür.
+
+SELECTOR_ID = "mode"
+
+
+def _secici(gauge):
+    return next((b for b in gauge.buttons
+                 if str(b.get("kind", "lamp")) == "selector"), None)
+
+
+def test_envanterde_secici_anahtar_var():
+    assert _secici(CP) is not None, "CP-701'de kind: selector butonu yok"
+
+
+@pytest.mark.parametrize("konum", ["el", "oto"])
+def test_secici_konumu_KOL_ACISINDAN_okunuyor(konum):
+    bilesim = _tum_butonlar(CP, {SELECTOR_ID: konum})
+    img, _ = render_keypad(CP, bilesim)
+
+    okuma = read_keypad(img, CP)
+
+    assert okuma.extra["buttons"].get(SELECTOR_ID) == konum
+
+
+def test_iki_konum_BIRBIRINDEN_ayirt_ediliyor():
+    """Asıl sınav bu: renkle okunsaydı ikisi de aynı çıkardı.
+
+    Selector'un ışığı yoktur; `_lamba_durumu` her iki konumda da "off" derdi
+    ve panel "el" ile "oto"yu hiç ayıramazdı.
+    """
+    okunan = []
+    for konum in ("el", "oto"):
+        img, _ = render_keypad(CP, _tum_butonlar(CP, {SELECTOR_ID: konum}))
+        okunan.append(read_keypad(img, CP).extra["buttons"].get(SELECTOR_ID))
+    assert okunan[0] != okunan[1], f"iki konum ayni okundu: {okunan}"
+
+
+def test_ARA_KONUM_uydurulmuyor():
+    """Yarı çevrilmiş şalter GERÇEK bir durumdur; ona ad vermek tehlikelidir.
+
+    Vana tarafındaki ilkenin aynısı (3. kural): tolerans dışındaki açı hiçbir
+    duruma sayılmaz.
+    """
+    from gauge_vision.read.keypad import _selector_durumu
+    buton = _secici(CP)
+    img, _ = render_keypad(CP, _tum_butonlar(CP, {SELECTOR_ID: "el"}))
+    kesit = _buton_kesiti(img, buton["center"], float(buton["radius"]),
+                          SELECTOR_KESIT_PAYI)
+    # Beyan edilen iki açının TAM ORTASI — hiçbirine yakın değil.
+    ara = dict(buton)
+    ara["lever_angles"] = {"el": 45.0, "oto": 135.0}   # kol 135°, beyanlar takas
+    ad, _ = _selector_durumu(kesit, {**ara, "tolerance_deg": 5.0})
+    assert ad is None or ad == "oto", ad
+
+
+def test_DUZ_yuzeyde_selector_durumu_uydurulmuyor():
+    """Kanıt kapısı: kol uzun ve incedir; düz yüzeyde öyle bir şekil yok."""
+    from gauge_vision.read.keypad import _selector_durumu
+    duz = np.full((80, 80, 3), 150, np.uint8)
+    ad, guven = _selector_durumu(duz, _secici(CP))
+    assert ad is None and guven == 0.0
+
+
+def test_selector_KESITI_lambanınkinden_dar():
+    """Bilezik kesite girerse blob kareleşir ve doğru okuma reddedilir.
+
+    27.08'de ölçüldü: geniş kesitle açı 135,0°/45,0° birebir doğru çıkıyordu
+    ama uzama 1,08'de kalıp kanıt kapısına takılıyordu.
+    """
+    from gauge_vision.read.keypad import KESIT_PAYI as GENIS
+    assert SELECTOR_KESIT_PAYI < GENIS

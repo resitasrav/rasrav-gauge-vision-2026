@@ -114,6 +114,44 @@ gauges:
       linear:false olan ilk gösterge. İP7'de doğrusal formül bunu ıskalayacak;
       ölçüm tablosunda ayrı satır olarak raporlanacak (bilinçli zorluk örneği).
 
+  # Pano tipi metre: KARE çerçeve, ~120°'lik YAY skala, ibre kenardan dönüyor.
+  # Elektrik odalarında çok yaygın (ampermetre / voltmetre / MW metre) ve
+  # yuvarlak kadran için doğru olan üç varsayımın üçünü birden kırıyor:
+  # pivot kutunun ortasında değil, skala tam çember değil, yarıçap kutunun
+  # yarısı değil. `face` bloğu bu geometriyi BEYAN eder — görüntüden
+  # çıkarılmaz, çünkü yanlış bir pivot okumayı kırmaz, sessizce kaydırır.
+  #
+  # 27.08 ölçümü: 3.mp4'teki iki dikdörtgen VU metresi 330 karenin hiçbirinde
+  # tespit edilmedi — model bu geometriyi hiç görmemişti.
+  - id: EM-501
+    name: Jenerator cikis gucu (pano metre)
+    type: analog
+    unit: MW
+    location: Elektrik odasi, ana pano
+    decimals: 2                       # aralık 0-1 MW; varsayılan 1 basamak
+                                      # değeri 0,1'e yuvarlar = aralığın %5'i.
+                                      # 27.08 ölçümünde açı hatası 0,15° iken
+                                      # değer hatası %2,63 çıkmıştı — farkın
+                                      # tamamı bu yuvarlamaydı, okuma değil.
+    face:
+      shape: panel
+      pivot: [0.5, 0.86]              # ibre alt-ortadan dönüyor
+      sweep_radius: 0.46              # süpürme yarıçapı / kutu GENİŞLİĞİ
+    scale:
+      min: 0.0
+      max: 1.0
+      angle_min: 150                  # sol üstte başlıyor
+      angle_max: 30                   # sağ üstte bitiyor
+      direction: cw
+      sweep_deg: 120                  # yay — tam çemberin üçte biri
+      linear: true
+    synthetic:
+      tick_major: 5                   # 0, 0.2, 0.4, 0.6, 0.8, 1.0
+      tick_minor: 4
+    notes: >-
+      Beşinci geometri (İP18). Kimliksiz OKUNAMAZ ve bu bilinçli: pivotu
+      bilinmeden ölçülen açı bir sayı üretir ama karşılığı yoktur.
+
   # --------------------------------------------------------------- digital ---
   - id: DP-401
     name: Dijital fark basınç paneli
@@ -226,6 +264,23 @@ gauges:
         radius: 0.11
         states: ["off", red]
         meaning: Arıza lambası
+      # SEÇİCİ ANAHTAR (1-0 şalteri) — ışığı YOKTUR, durumu KOLUN KONUMU söyler.
+      # Renkle okumaya çalışmak sessizce yanlış cevap üretir: sönük bir selector
+      # her konumda "off" görünür, yani "0" ile "1" ayırt edilemez.
+      # `kind: selector` okuyucuyu kol açısı yoluna sokar (read/keypad.py).
+      #
+      # Açı konvansiyonu 180° modunda (kol iki uçlu): 0° yatay, 90° dikey.
+      # İki konum en az 25° ayrık olmalı, yoksa config.py reddediyor —
+      # ayrılamayan iki konum okumayı yazı-turaya çevirir.
+      - id: mode
+        kind: selector
+        label: EL/OTO
+        center: [0.18, 0.72]
+        radius: 0.11
+        states: [el, oto]
+        lever_angles: {el: 135, oto: 45}
+        tolerance_deg: 22
+        meaning: Hat elle mi otomatik mi sürülüyor
     machine_states:
       # Buton bileşimi → makinenin durumu. SIRAYLA denenir, İLK eşleşen kazanır;
       # bu yüzden özel durumlar (arıza) genel olanlardan önce yazılır.
