@@ -12,9 +12,17 @@ Hiçbir modülün kaynak dosyası bu script tarafından DEĞİŞTİRİLMEZ. Yaln
     (ultralytics YOLO.track, aynı varsayılan model + eşik) demo tarafında ayrı
     bir sarmalayıcı çalıştırılır — bu bir "yeniden yazım" değil, dosyasının tek
     fonksiyona ayrılmamış olmasının pratik çözümüdür (RAPOR.md madde 1).
-    ANOMALİ panelinde gerçek bir çağrı denenmez (anomali_test.py bir eğitim
-    scriptidir, MVTec-AD indirir ve saatlerce eğitir — bir video karesiyle
-    hiçbir ilgisi yoktur); panel sabit bir HATA mesajı gösterir.
+  - ANOMALİ (Özgür): 28.08'den beri ONUN DOSYASI KOŞUYOR. Özgür
+    `scripts/core/anomali_motor.py` içinde `AlgilayiciMOG2`'yi yayımladı ve
+    sınıfın `isle(frame) -> dict` diye tek kare alan bir yöntemi var — RAPOR.md
+    madde 1'in istediği sözleşme buydu. Panel o sınıfı import edip çağırıyor,
+    değiştirmiyor. Deposu diskte bulunamazsa `demo/anomali_demo.py`'deki PaDiM
+    sarmalayıcısına düşülür ve panel başlığı bunu söyler.
+
+Panel başlığı hangi kodun koştuğunu YAZAR: "- kendi modulu" gerçekten o kişinin
+dosyası koşuyor demektir, "- demo sarmalayici" / "- PaDiM yedegi" ise demo
+tarafında koşan bir karşılık demektir. GÖSTERGE'de ek yoktur; orada zaten
+`gauge_vision` paketinin kendisi koşar.
 """
 
 from __future__ import annotations
@@ -236,15 +244,31 @@ def algilama_isle(frame: np.ndarray, model, conf: float = 0.4) -> tuple[np.ndarr
 # Künye panelin başlığında duruyor ki kimse bunu Özgür'ün kodunun çıktısı
 # sanmasın.
 
-import anomali_demo  # noqa: E402  (demo klasörü sys.path'e main() içinde eklenir)
+import anomali_demo  # noqa: E402  (demo klasörü sys.path'e yukarıda eklendi)
+import anomali_ozgur  # noqa: E402
+from video_yazici import yazici_ac  # noqa: E402
 
 
 def anomali_hazirla(video_yolu: Path):
+    """Önce ÖZGÜR'ÜN modülü; bulunamazsa PaDiM sarmalayıcısına düşülür.
+
+    Sıra tesadüf değil: 28.08'de Özgür `AlgilayiciMOG2`'yi tek kare alan bir
+    sınıf olarak yayımladı, yani RAPOR.md madde 1'in istediği sözleşme oluştu.
+    O varken kendi sarmalayıcımı koşturmak, çalışan bir modülü görmezden
+    gelmek olurdu.
+    """
+    kok = anomali_ozgur.kok_bul(STAJ_DIR)
+    if kok is not None:
+        return anomali_ozgur.OzgurMotoru(kok)
+    print("[UYARI] Ozgur'un anomali_motor.py'si bulunamadi, PaDiM yedegine dusuluyor")
     return anomali_demo.uyumla(anomali_demo.uyum_kareleri(str(video_yolu)))
 
 
 def anomali_isle(frame: np.ndarray, model) -> tuple[np.ndarray, dict]:
-    cizili, olcum = anomali_demo.anomali_isle(frame, model)
+    if isinstance(model, anomali_ozgur.OzgurMotoru):
+        cizili, olcum = model.isle(frame)
+    else:
+        cizili, olcum = anomali_demo.anomali_isle(frame, model)
     return _letterbox(cizili, PANEL_W, PANEL_H), olcum
 
 
@@ -293,14 +317,35 @@ def _algilama_ozeti(iz: list[dict], hata: str | None) -> dict:
                 if hedefli else None)}
 
 
-def _anomali_ozeti(iz: list[dict], hata: str | None, esik: float | None) -> dict:
+def _anomali_ozeti(iz: list[dict], hata: str | None, model) -> dict:
     if hata:
         return {"hata": hata}
+
+    # İki motor iki farklı büyüklük yayınlıyor ve ORTAK bir özete zorlanmıyor:
+    # Özgür'ünki "kaç nesne göründü", benimki "referanstan ne kadar saptı".
+    # Aynı alan adı altında birleştirmek RAPOR.md §5'teki hatanın tekrarı olurdu.
+    if isinstance(model, anomali_ozgur.OzgurMotoru):
+        alarmli = [i for i, k in enumerate(iz) if k["alarm"]]
+        donme = sum(1 for k in iz if k["donme"])
+        fg = [k["fg_orani"] for k in iz]
+        return {"yontem": "AlgilayiciMOG2 - OZGUR'UN KENDI MODULU (import edildi)",
+                "kaynak": str(model.kok),
+                "alarm_kare": len(alarmli),
+                "alarm_orani": round(len(alarmli) / len(iz), 3) if iz else None,
+                "donme_askiya_alinan_kare": donme,
+                "fg_orani": {"medyan": round(statistics.median(fg), 4),
+                             "maks": round(max(fg), 4)} if fg else None,
+                "ilk_alarm_kareleri": alarmli[:10]}
+
     skorlar = [k["skor"] for k in iz]
     isaretli = [i for i, k in enumerate(iz) if k["anomali"]]
-    return {"yontem": "PaDiM (demo sarmalayici, torchvision ResNet18)",
-            "referans": "videonun ilk kareleri",
-            "esik": esik,
+    return {"yontem": "PaDiM (YEDEK sarmalayici, torchvision ResNet18)",
+            "referans": "videonun ilk %25'i",
+            "uyum_kare": model.uyum_kare_sayisi,
+            # Esigin olculdugu kume UYUMA GIRMEZ; ayrimin can alici noktasi bu.
+            "kalibrasyon_kare": model.kalibrasyon_kare_sayisi,
+            "zayif_referans": model.zayif_referans,
+            "esik": round(model.esik, 2),
             "skor": {"medyan": round(statistics.median(skorlar), 2),
                      "min": round(min(skorlar), 2),
                      "maks": round(max(skorlar), 2)} if skorlar else None,
@@ -361,12 +406,15 @@ def main(argv=None) -> int:
 
     # ANOMALİ "normal" referansını videonun kendi başından çıkarır, bu yüzden
     # hazırlık video yolunu bilmek zorunda — diğer iki modülden farkı budur.
-    print("[BİLGİ] ANOMALİ modülü (demo sarmalayıcı, PaDiM) uyumlanıyor...")
+    print("[BİLGİ] ANOMALİ modülü hazırlanıyor...")
     try:
         anmodel = anomali_hazirla(video_yolu)
         anomali_hata = None
-        print(f"[BİLGİ] ANOMALİ eşiği {anmodel.esik:.1f} "
-              f"({anmodel.uyum_kare_sayisi} kare referans)")
+        if isinstance(anmodel, anomali_ozgur.OzgurMotoru):
+            print(f"[BİLGİ] ANOMALİ: Özgür'ün AlgilayiciMOG2 modülü — {anmodel.kok}")
+        else:
+            print(f"[BİLGİ] ANOMALİ: PaDiM yedeği, eşik {anmodel.esik:.1f} "
+                  f"({anmodel.uyum_kare_sayisi} kare referans)")
     except Exception as e:
         anmodel = None
         anomali_hata = str(e)
@@ -418,7 +466,9 @@ def main(argv=None) -> int:
                 anomali_izi.append(anomali_olcum)
             except Exception as e:
                 p3 = _hata_paneli(frame, str(e))
-            p3 = _basliklandir(p3, "ANOMALI (Ozgur) - demo sarmalayici")
+            p3 = _basliklandir(p3, "ANOMALI (Ozgur) - kendi modulu"
+                               if isinstance(anmodel, anomali_ozgur.OzgurMotoru)
+                               else "ANOMALI (Ozgur) - PaDiM yedegi")
 
             birlesik = np.hstack([p1, p2, p3])
             gecen = time.perf_counter() - t0
@@ -431,8 +481,8 @@ def main(argv=None) -> int:
 
             if writer is None:
                 h, w = birlesik.shape[:2]
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                writer = cv2.VideoWriter(str(cikti_yolu), fourcc, kaynak_fps, (w, h))
+                # H.264 — çıktı başkasına gönderilebilsin diye (bkz. video_yazici).
+                writer, kodek = yazici_ac(cikti_yolu, kaynak_fps, (w, h))
             writer.write(birlesik)
 
             if not args.no_show:
@@ -458,8 +508,7 @@ def main(argv=None) -> int:
         "sure_sn": round(toplam, 1),
         "GOSTERGE": _gosterge_ozeti(gosterge_izi, gosterge_hata),
         "ALGILAMA": _algilama_ozeti(algilama_izi, algilama_hata),
-        "ANOMALI": _anomali_ozeti(anomali_izi, anomali_hata,
-                                  anmodel.esik if anmodel else None),
+        "ANOMALI": _anomali_ozeti(anomali_izi, anomali_hata, anmodel),
     }
     rapor_yolu = cikti_yolu.with_suffix(".json")
     rapor_yolu.write_text(json.dumps(rapor, ensure_ascii=False, indent=2),
