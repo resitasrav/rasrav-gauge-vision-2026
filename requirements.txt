@@ -38,3 +38,9 @@ pyarrow>=15.0              # Hugging Face parquet setleri
 # zamanı) + opencv + numpy + PyYAML kurulur.
 onnx>=1.16
 onnxruntime>=1.18
+
+# Demo ciktilarini paylasilabilir hale getirmek icin (demo/paylasilabilir_yap.py).
+# OpenCV Windows'ta H.264'u Media Foundation ile kodluyor ve bit hizini
+# ayarlamaya izin vermiyor; olculdu (28.08, 17 video): mp4v 577 MB, avc1 796 MB,
+# x264 CRF 23 ile 48 MB. Kendi ffmpeg ikilisini tasir, sisteme kurulum yapmaz.
+imageio-ffmpeg
