@@ -29,8 +29,9 @@ ne değişti" sorusunu cevaplıyor — devriye senaryosunda doğru soru budur
 (aynı durak, aynı çerçeve, zamanla değişen sahne). Bunun bir VARSAYIM olduğu
 panelde de yazıyor; sahnenin başı zaten anormalse ölçüm yanıltır.
 
-Eşik ölçülüyor, tahmin edilmiyor (depo kuralı): uyum kümesinin kendi skor
-dağılımının p99'u alınır. Altındaki kareler "normal", üstündekiler "anomali".
+Eşik ölçülüyor, tahmin edilmiyor (depo kuralı): referans bölge ikiye bölünür,
+kovaryans birinci yarıdan çıkar, eşik uyuma GİRMEYEN ikinci yarının p99'undan
+alınır. Bunun neden önemli olduğu `uyumla`'nın docstring'inde ölçümüyle yazılı.
 """
 from __future__ import annotations
 
@@ -41,15 +42,39 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-# PaDiM'in özgün kurulumu: rastgele seçilmiş boyut alt kümesi. Tam boyut (448)
-# hem kovaryansı tekilleştirir hem yavaşlatır; makale 100 boyutun yettiğini
-# ölçüyor. Burada 64 seçildi çünkü uyum kümesi 64 kare — kovaryansın kararlı
-# olması için örnek sayısı boyut sayısından KÜÇÜK OLMAMALI.
-BOYUT = 64
-UYUM_KARE = 64          # "normal" kabul edilen kare sayısı (videonun başı)
+# PaDiM'in özgün kurulumu: rastgele seçilmiş boyut alt kümesi (makale 100
+# boyutun yettiğini ölçüyor; tam boyut 448 hem kovaryansı tekilleştirir hem
+# yavaşlatır).
+#
+# ÖLÇÜLDÜ (27.08, ozgur.mp4 koridor çekimi) — ilk sürümün iki kusuru:
+#
+# 1. BOYUT 64 iken uyum kümesi de 64 kareydi. Kovaryans o zaman tekil olur ve
+#    her uyum karesi kendi dağılımına TAM oturur: Mahalanobis ≈ sqrt(D) = 8.
+#    17 videonun 17'sinde de eşik 7,7-7,9 çıktı — birbirinden tamamen farklı
+#    videolarda aynı sayı. Düz çıkan tablo sonuç değil uyarıdır.
+# 2. Eşik uyum kümesinin KENDİ skorlarından alınıyordu. O skorlar tanım gereği
+#    en düşüktür; aynı sahnenin uyumda yer almayan karesi 45 kat yüksek
+#    (medyan 7,46 → 337,74). Yani eşik yanlış popülasyonda ölçülmüştü —
+#    bu deponun kendi kuralı: eşik İKİ kümenin dağılımı ölçülüp aralarına konur.
+#
+# Tarama (ayrık normal = aynı sahne, uyumda yok · uzak = koridorun ilerisi):
+#
+#   D    N     ic-orneklem   ayrik normal   uzak    ayrim
+#   64   64        7,46         137,26     345,72   2,52x
+#   64  240       11,64          84,63     165,66   1,96x
+#   32  240        9,89          67,16     136,87   2,04x
+#    8  240        7,92          20,07      89,97   4,48x   <-- secilen
+#
+# Boyut düştükçe ayrım artıyor: yüksek boyutta uzaklık gürültüyle şişiyor ve
+# normal ile anormal birlikte yükseliyor.
+BOYUT = 8
+UYUM_ORAN = 0.25        # referans bölge: videonun ilk %25'i
+UYUM_TAVAN = 240        # ondan fazlası ölçümde kazanç getirmedi, süre getirdi
+UYUM_TABAN = 40         # bunun altında kovaryans anlamsız — raporda işaretlenir
+KALIBRASYON_ORAN = 0.2  # referansın bu kadarı uyuma GİRMEZ, eşik onda ölçülür
 GIRDI = 256             # ResNet girdisi (kare)
 DUZENLEME = 0.01        # kovaryans köşegenine eklenen pay (tekillik koruması)
-ESIK_YUZDELIK = 99.0    # uyum kümesinin bu yüzdeliği "normalin tavanı"
+ESIK_YUZDELIK = 99.0    # AYRIK normal kümenin bu yüzdeliği "normalin tavanı"
 
 
 class _Cikarici:
@@ -95,8 +120,11 @@ class AnomaliModeli:
     izgara: tuple[int, int]     # (h, w) yama ızgarası
     cikarici: _Cikarici
     uyum_kare_sayisi: int
+    kalibrasyon_kare_sayisi: int
     esik: float = 0.0
     uyum_skorlari: list[float] = field(default_factory=list)
+    kalibrasyon_skorlari: list[float] = field(default_factory=list)
+    zayif_referans: bool = False
 
 
 @torch.no_grad()
@@ -110,27 +138,67 @@ def _harita(model: AnomaliModeli, bgr: np.ndarray):
     return harita, float(harita.max())
 
 
-def uyumla(kareler: list[np.ndarray], cihaz: str | None = None) -> AnomaliModeli:
-    """Verilen 'normal' karelerden yama başına Gauss çıkarır."""
+def uyumla(referans: list[np.ndarray], cihaz: str | None = None) -> AnomaliModeli:
+    """Referans karelerden yama başına Gauss çıkarır ve eşiği kalibre eder.
+
+    Referans İKİYE bölünür ve bu bölme yöntemin can alıcı noktasıdır:
+
+      * **uyum kümesi** — kovaryans buradan çıkar;
+      * **kalibrasyon kümesi** — uyuma GİRMEZ, eşik burada ölçülür.
+
+    Eşiği uyum kümesinde ölçmek ilk sürümün hatasıydı: o kareler tanım gereği
+    kendi dağılımının merkezindedir ve skorları en düşüktür. Aynı sahnenin
+    uyumda yer almayan bir karesi 45 kat yüksek çıkıyordu (7,46 → 337,74),
+    yani eşik "normal" diye ölçtüğü şeyin ne olduğunu bilmiyordu. Kalibrasyon
+    kümesi de normaldir ama uyumda YOKTUR — aranan popülasyon budur.
+    """
     cihaz = cihaz or ("cuda" if torch.cuda.is_available() else "cpu")
+    kalib_n = max(int(len(referans) * KALIBRASYON_ORAN), 1)
+    uyum, kalibrasyon = referans[:-kalib_n], referans[-kalib_n:]
+    if not uyum:                       # çok kısa video: bölünemiyor
+        uyum, kalibrasyon = referans, referans
+
     cik = _Cikarici(cihaz)
-    E = torch.cat([cik(k) for k in kareler], 0)      # (N, D, H, W)
+    E = torch.cat([cik(k) for k in uyum], 0)         # (N, D, H, W)
     N, D, H, W = E.shape
     E = E.permute(0, 2, 3, 1).reshape(N, H * W, D)   # (N, P, D)
 
     ortalama = E.mean(0)                             # (P, D)
-    ort_cikmis = E - ortalama
+    ort_cikmis = (E - ortalama).double()              # kovaryans çift duyarlıkta
     # Yama başına kovaryans: (P, D, D). einsum tek seferde, döngü yok.
     kov = torch.einsum("npi,npj->pij", ort_cikmis, ort_cikmis) / max(N - 1, 1)
-    iz = torch.diagonal(kov, dim1=1, dim2=2).mean(1).view(-1, 1, 1)
-    kov = kov + DUZENLEME * iz * torch.eye(D, device=cihaz).unsqueeze(0)
 
-    model = AnomaliModeli(ortalama, torch.linalg.inv(kov), (H, W), cik, len(kareler))
-    # Eşik uyum kümesinin KENDİ skorlarından: bu kareler tanım gereği normal,
-    # dolayısıyla "normalin tavanı" onların dağılımıdır. Sabit sayı yazmak
-    # depoda üç kez elenen hata sınıfıdır (mutlak eşik).
-    model.uyum_skorlari = [float(_harita(model, k)[1]) for k in kareler]
-    model.esik = float(np.percentile(model.uyum_skorlari, ESIK_YUZDELIK))
+    # DÜZENLEME PAYI GLOBAL İZDEN ÖLÇEKLENİR, yamanın kendi izinden DEĞİL.
+    # İlk sürüm yamanın kendi izini kullanıyordu ve sabit kamerada çöküyordu:
+    # hiç değişmeyen bir yamada iz 0'dır, dolayısıyla pay da 0 olur ve matris
+    # tekil kalır. 27.08'de dört videoda (karasel, 6, 5s, 10) linalg.inv tam
+    # olarak bunu söyleyerek patladı. Global iz her yamaya bir TABAN verir;
+    # hiç değişmemiş bir yama artık sonsuz değil, BÜYÜK ama sonlu uzaklık
+    # üretir — ki doğrusu budur: referansta hiç oynamamış bir bölge oynarsa
+    # bu gerçekten güçlü bir anomali kanıtıdır.
+    iz_global = torch.diagonal(kov, dim1=1, dim2=2).mean()
+    birim = torch.eye(D, device=cihaz, dtype=kov.dtype).unsqueeze(0)
+    kov = kov + DUZENLEME * iz_global * birim
+
+    try:
+        # Cholesky, inv'den hem daha kararlı hem daha hızlı (kovaryans simetrik
+        # pozitif tanımlı olmalı); başarısız olması matrisin gerçekten bozuk
+        # olduğunu söyler ve bunu YUTMAK sessiz hata olurdu.
+        L = torch.linalg.cholesky(kov)
+        ters = torch.cholesky_inverse(L).float()
+    except RuntimeError as e:
+        raise RuntimeError(
+            f"kovaryans tersi alinamadi ({N} uyum karesi, D={D}): {e}. "
+            "Referans bolgesi cok tekduze olabilir.") from e
+
+    model = AnomaliModeli(ortalama, ters, (H, W), cik,
+                          len(uyum), len(kalibrasyon))
+    model.uyum_skorlari = [float(_harita(model, k)[1]) for k in uyum]
+    model.kalibrasyon_skorlari = [float(_harita(model, k)[1]) for k in kalibrasyon]
+    model.esik = float(np.percentile(model.kalibrasyon_skorlari, ESIK_YUZDELIK))
+    # Kovaryans örnek sayısı boyut sayısına yaklaşırsa tekilleşir ve bütün
+    # skorlar sqrt(D) civarına çöker. Raporda görünsün diye işaretleniyor.
+    model.zayif_referans = len(uyum) < UYUM_TABAN
     return model
 
 
@@ -154,22 +222,33 @@ def anomali_isle(bgr: np.ndarray, model: AnomaliModeli) -> tuple[np.ndarray, dic
     etiket = "ANOMALI" if anomali else "normal"
     cv2.putText(cizili, f"{etiket}  skor {skor:.1f} / esik {model.esik:.1f} (x{oran:.2f})",
                 (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.62, renk, 2, cv2.LINE_AA)
-    cv2.putText(cizili, f"referans: videonun ilk {model.uyum_kare_sayisi} karesi",
-                (12, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
+    not_ = (f"referans: ilk {model.uyum_kare_sayisi} kare"
+            f" (+{model.kalibrasyon_kare_sayisi} kalibrasyon)")
+    if model.zayif_referans:
+        not_ += "  ZAYIF"
+    cv2.putText(cizili, not_, (12, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                (200, 200, 200), 1, cv2.LINE_AA)
     return cizili, {"skor": round(skor, 2), "esik": round(model.esik, 2),
                     "oran": round(oran, 3), "anomali": bool(anomali)}
 
 
-def uyum_kareleri(video_yolu: str, sayi: int = UYUM_KARE) -> list[np.ndarray]:
-    """Videonun BAŞINDAN ardışık kareler — 'normal' referans kümesi."""
+def uyum_kareleri(video_yolu: str) -> list[np.ndarray]:
+    """Videonun BAŞINDAN referans kareler ('normal' kabul edilen bölge).
+
+    Sabit bir kare sayısı değil, videonun ilk %25'i alınıyor (tavanı
+    `UYUM_TAVAN`): kısa bir videoda 240 kare zaten videonun tamamı olurdu ve
+    o zaman "referans" ile "ölçülen" aynı şey olur, ölçüm anlamsızlaşır.
+    """
     cap = cv2.VideoCapture(video_yolu)
+    toplam = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+    hedef = min(UYUM_TAVAN, max(int(toplam * UYUM_ORAN), 1)) if toplam else UYUM_TAVAN
     kareler = []
-    while len(kareler) < sayi:
+    while len(kareler) < hedef:
         ok, k = cap.read()
         if not ok:
             break
         kareler.append(k)
     cap.release()
     if not kareler:
-        raise RuntimeError(f"uyum karesi okunamadi: {video_yolu}")
+        raise RuntimeError(f"referans karesi okunamadi: {video_yolu}")
     return kareler

@@ -33,6 +33,27 @@ VARSAYILAN_CIKTI = DEMO_DIR / "cikti" / "ekip"
 UZANTILAR = (".mp4", ".avi", ".mov", ".mkv")
 
 
+def _anomali_satiri(an: dict) -> str:
+    """ANOMALİ özetini tek satıra çevirir — EKSİK ANAHTARA 0 UYDURMADAN.
+
+    Bu fonksiyon bir hatadan doğdu: konsol satırı `anomali_orani` okuyordu ama
+    Özgür'ün motoru `alarm_orani` yayınlıyor. Eksik anahtar `or 0` ile sıfıra
+    çevrilince 17 videonun hepsi "%0 anomali" göründü — oysa JSON'da 666 alarm
+    yazıyordu. Ölçüm doğruydu, GÖSTERİM yalan söylüyordu.
+
+    Ders bu depoda zaten var (3. kural): bilinmeyen için sayı uydurulmaz.
+    Aynısı ekrana basılan özet için de geçerli.
+    """
+    if "hata" in an:
+        return f"HATA ({an['hata'][:40]})"
+    if "alarm_orani" in an:                      # Özgür'ün MOG2 motoru
+        return f"%{100 * an['alarm_orani']:.0f} alarm"
+    if "anomali_orani" in an:                    # PaDiM yedeği
+        oran = an["anomali_orani"]
+        return "?" if oran is None else f"%{100 * oran:.0f} anomali"
+    return "?"
+
+
 def main(argv=None) -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(description=__doc__,
@@ -81,7 +102,7 @@ def main(argv=None) -> int:
               f"G: {g.get('analog_okunan', '-')}/{g.get('analog_kutu', '-')} okuma, "
               f"flip {g.get('flip_180', '-')} | "
               f"A: {al.get('hedefli_kare', '-')} hedefli kare | "
-              f"AN: %{100*(an.get('anomali_orani') or 0):.0f} anomali")
+              f"AN: {_anomali_satiri(an)}")
 
     (a.cikti / "_ozet.json").write_text(
         json.dumps(raporlar, ensure_ascii=False, indent=2), encoding="utf-8")
