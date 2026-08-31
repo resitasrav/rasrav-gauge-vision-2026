@@ -60,6 +60,39 @@ yayina uygun sayilmalidir.
 Kabul olcutu: farkli analog gostergenin kadraja girdigi senaryoda yanlis birim
 veya kalibrasyonla `status: ok` mesaji uretilmemelidir.
 
+## P0: Tespit Sinif Korlugu ve Sentetik Dogrulama Kumesi
+
+Tam olcum ve gerekce: `docs/tespit_sinif_korlugu.md` (31.08.2026, 0831.mp4).
+
+Bes tespit sinifindan yalniz `gauge` sahada calisiyor. `lamp`, `valve` ve
+`keypad` kadraji dolduran nesnelerde bile sifir kutu uretiyor; guven esigi
+0,01'e indirildiginde de bulunmuyorlar, yani bu bir esik ayari degil. `digital`
+ters yonde bozuk: zeminde duran koyu bir makine modulune `digital 0,38` kutusu
+atiyor. Kok neden olculdu: gercek endustriyel goruntuden beslenen tek sinif
+`gauge`, ve sahada calisan tek sinif da `gauge`. Diger dort sinifin egitim
+ornekleri duz vektor glifleri; `lamp` ve `keypad` icin var olan gercek kirpimlar
+ise tek videodan geliyor (24 ve 10 adet).
+
+Daha ciddi olan ikinci bulgu: `data/detect/keypad5/val` icinde tek bir gercek
+goruntu yok. Bu agirligin raporlanan mAP degeri tamamen sentetik veri uzerinde
+olculmustur, dolayisyla saha performansini olcmez ve korlugu gorunmez kilar.
+
+1. Once gercek dogrulama kumesi kurulmali (`data/detect/gercek_val/`), egitim ve
+   dogrulama bolumleri ayni sahneden pay almamalidir. Kural 1 geregi `.gitignore`
+   girdisi klasor olusturulmadan once yazilir.
+2. Sonra dort sinif icin sinif basina en az 150 gercek ornek toplanmali; olcut
+   sayi degil cesitliliktir (en az bes farkli fiziksel nesne ve isik kosulu).
+3. `docs/cekim_talimati.md` bu maddeyi tek basina kapatmaz: ekrandan cekim
+   gercek optigi kazandirir, gercek gorunumu kazandirmaz. Sahadaki kusur
+   gorunum boslugudur.
+4. `digital` icin tespit asamasinda yanlis pozitif kapisi gerekiyor; Kural 3'un
+   okuma asamasindaki karsiligi tespit tarafinda yok.
+
+Kabul olcutu: gercek dogrulama kumesinde dort sinifin tespit kapsami ayri ayri
+raporlanir ve sentetik mAP ile gercek mAP arasindaki fark sayiyla kayda gecer.
+0831.mp4 kare 1650 (vana) ve kare 1200 (lamba) `conf >= 0,25` ile DOGRU sinif
+etiketiyle bulunmalidir. Sentetik mAP tek basina ilerleme kaniti sayilmaz.
+
 ## P1: Gercek Zaman ve Optik Dayaniklilik
 
 - Kamera yakalama, isleme ve yayin zamanlarini ayri olcun; kare yasi ve dusen
@@ -70,7 +103,9 @@ veya kalibrasyonla `status: ok` mesaji uretilmemelidir.
   ekleyebilir.
 - Tespit modeli icin yansima, hareket bulanikligi, kismi ortulme ve egik bakis
   iceren etiketli gercek kareler toplanmali. Sentetik veri varyasyonu destekler,
-  saha genellemesini kanitlamaz.
+  saha genellemesini kanitlamaz. Bu madde 31.08'de olculdu ve artik genel bir
+  tavsiye degil somut bir kusurdur; yukaridaki "P0: Tespit Sinif Korlugu"
+  basligina tasindi.
 
 Kabul olcutu: ayni kamera ve cozumurlukte p95 kare yasi, p95 isleme suresi,
 tespit kapsami, mutlak deger hatasi ve yanlis alarm orani birlikte raporlanir.

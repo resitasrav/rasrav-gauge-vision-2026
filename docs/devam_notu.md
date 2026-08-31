@@ -518,7 +518,44 @@ sabit. Vananın da aynı sınırı var. 25° eğikte kapsama 0.
 
 ---
 
+## 6.6 Tespit sınıf körlüğü — 0831 ölçümü (31.08)
+
+Birleşik demonun çıktısı (`demo/cikti/birlesik/0831_birlesik.mp4`, 70,3 sn)
+kare kare incelendi. Bulgu tek cümleyle: **beş tespit sınıfından yalnız `gauge`
+sahada çalışıyor.**
+
+Kadrajın %15'ini kaplayan kırmızı vana volanı `conf 0,02` alıyor ve `valve`
+değil `gauge` etiketiyle geliyor; kule lambaları ve buton panosu `conf 0,01`'de
+bile sıfır kutu veriyor. Eşik meselesi değil — model o nesneleri hiç öğrenmemiş.
+
+Kök neden eğitim kümesinde ölçüldü: gerçek endüstriyel görüntüden beslenen tek
+sınıf `gauge` (265 örnek), sahada çalışan tek sınıf da `gauge`. Diğer dördünün
+örnekleri düz vektör glifi; `lamp`/`keypad` için var olan gerçek kırpımlar tek
+videodan geliyor (24 ve 10 adet).
+
+**Daha ciddi ikinci bulgu:** `data/detect/keypad5/val` içinde tek bir gerçek
+görüntü yok. Bu ağırlığın mAP'i tamamen sentetik veri üstünde ölçülmüş, yani
+saha performansını ölçmüyor ve körlüğü görünmez kılıyor.
+
+Ters yönde bir kusur da var: `digital` sınıfı zeminde duran siyah bir makine
+modülüne kutu atıyor (kare 1286, `digital 0,38`) — tespit aşamasında Kural 3'ün
+karşılığı olan bir kapı yok.
+
+Hata OLMAYAN: 811 `gauge` kutusunun 50'si (%6,2) okunmadı; kare 284'te kadranlar
+~45 piksel ve ibre seçilmiyor. Kural 3 tasarlandığı gibi çalışmış, bu
+gevşetilmemeli. Kadranın gerçekten göründüğü yerde modül çalışıyor: kare 300'de
+üç manometre 0,98/0,82/0,83 ile bulunup **3/3 okundu**.
+
+Tam ölçüm, tablolar ve çözüm sırası: `docs/tespit_sinif_korlugu.md`.
+Öncelik listesindeki karşılığı: `tavsiye_edilen_iyilestirmeler.md` → **P0: Tespit
+Sinif Korlugu ve Sentetik Dogrulama Kumesi**.
+
+---
+
 ## 7. Sırada ne var
+
+**0. Gerçek doğrulama kümesi (§6.6).** Bu kurulmadan aşağıdaki hiçbir maddenin
+   "düzeldi" denmesi kanıtlanamaz — mevcut mAP sentetik veri üstünde ölçülüyor.
 
 1. **Kapı eşiklerini yeniden ölç.** `MIN_TESPIT_GUVENI` / `MIN_IBRE_KANITI`
    eski ağırlığın dağılımından seçildi; yeni model ile
