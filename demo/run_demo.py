@@ -48,7 +48,7 @@ import numpy as np
 
 DEMO_DIR  = Path(__file__).resolve().parent
 REPO_DIR  = DEMO_DIR.parent          # rasrav_gauge_repo
-STAJ_DIR  = REPO_DIR.parent          # akilli_fabrika_staj-2026
+STAJ_DIR  = REPO_DIR.parent          # akilli_fabrika_staj-2026 (Opsiyonel, varsa)
 
 sys.path.insert(0, str(REPO_DIR / "src"))
 sys.path.insert(0, str(REPO_DIR / "scripts"))
